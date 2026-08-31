@@ -4,19 +4,23 @@ A ZMK-based media remote / mini pointing device: 3 buttons (prev /
 play-pause / next), a rotary encoder (volume + mute), and an analog
 joystick (cursor movement + left-click) — built for a Pro-Micro-footprint
 nRF52840 board (target: "V1940 Pro Micro nRF52840", flashed as
-`nice_nano_v2` since it shares the nice!nano v2 pinout). Works over BLE
+`nice_nano//zmk` since it shares the nice!nano v2 pinout). Works over BLE
 (pairs as a standard HID keyboard/consumer-control/mouse device — no
 drivers needed on macOS or Bluetooth-capable TVs) or over a USB cable,
 switchable at any time.
 
 ## Repo layout
 
-- `config/west.yml` — points at upstream ZMK firmware, pinned to the
-  `v0.3.0` release rather than `main` (ZMK's `main` branch is currently
-  mid-migration off its deprecated KSCAN subsystem post-Zephyr-4.1, which
-  makes builds using `zmk,kscan-gpio-direct` — including this one — fail
-  outright; ZMK's own CI recommends pinning when this happens). Bump this
-  once ZMK finishes that migration and cuts a new release.
+- `config/west.yml` — points at upstream ZMK `main`. (Pinning to the last
+  tagged release, `v0.3.0`, was tried first but doesn't actually work
+  right now: the CI's Docker build image floats to whatever toolchain
+  `main` currently needs, so an old pinned Zephyr source hits unrelated
+  compiler-internal failures. `main` is the only branch guaranteed to
+  match the image, so we stay on it and suppress the one Kconfig warning
+  it currently trips - see `CONFIG_WARN_DEPRECATED=n` in
+  `media_controller.conf`, needed because ZMK's `main` branch briefly
+  treats using its own (still-required) KSCAN subsystem as deprecated
+  post-Zephyr-4.1-upgrade.)
 - `config/media_controller.keymap` — key bindings + Bluetooth-profile /
   output-toggle combos
 - `config/media_controller.conf` — BLE/USB/pointing/power Kconfig options
@@ -61,7 +65,7 @@ then, from the repo root:
 ```
 west init -l config
 west update
-west build -p -b nice_nano_v2 -- -DSHIELD=media_controller
+west build -p -b nice_nano//zmk -- -DSHIELD=media_controller
 ```
 
 The output `.uf2` will be in `build/zephyr/zmk.uf2`.

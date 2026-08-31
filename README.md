@@ -85,7 +85,7 @@ your TV without re-pairing every time.
 
 - **Pair to macOS:** hold `prev` + `next` together (selects profile 0),
   then on the Mac go to System Settings → Bluetooth and pair with
-  "Media Controller".
+  "Media Remote".
 - **Pair to a TV:** hold `prev` + `play/pause` together (selects profile
   1), then pair from the TV's Bluetooth settings menu.
 - **Switch between them later:** just repeat the relevant combo — no

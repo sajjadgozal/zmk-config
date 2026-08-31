@@ -1,7 +1,10 @@
 if SHIELD_MEDIA_CONTROLLER
 
+
+# Must be 16 characters or less to fit BLE advertising data
+# (see BT_DEVICE_NAME_MAX in ZMK's app/Kconfig).
 config ZMK_KEYBOARD_NAME
-    default "Media Controller"
+    default "Media Remote"
 
 config EC11
     default y

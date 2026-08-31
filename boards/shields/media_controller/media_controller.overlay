@@ -19,8 +19,8 @@
  */
 
 #include <dt-bindings/zmk/matrix_transform.h>
-#include <zephyr/dt-bindings/adc/adc.h>
-#include <zephyr/dt-bindings/adc/nrf-saadc.h>
+#include <dt-bindings/adc/adc.h>
+#include <dt-bindings/adc/nrf-saadc.h>
 
 / {
     chosen {

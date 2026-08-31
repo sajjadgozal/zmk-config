@@ -3,3 +3,5 @@
 include:
   - board: nice_nano//zmk
     shield: media_controller
+  - board: nice_nano//zmk
+    artifact-name: diagnostic-bare-board

@@ -6,7 +6,7 @@
  * (cursor movement, click = left-click).
  *
  * Digital pin numbers below use the standard "pro_micro" connector
- * index, which is portable across nice_nano_v2 and any Pro-Micro-footprint
+ * index, which is portable across nice_nano//zmk and any Pro-Micro-footprint
  * nRF52840 clone (like the V1940) that shares the same pinout.
  * DOUBLE-CHECK these against your board's silkscreen before wiring —
  * pick any free GPIO pins, these are just a sane starting point.

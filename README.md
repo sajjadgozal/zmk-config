@@ -4,7 +4,7 @@ A ZMK-based media remote / mini pointing device: 3 buttons (prev /
 play-pause / next), a rotary encoder (volume + mute), and an analog
 joystick (cursor movement + left-click) — built for a Pro-Micro-footprint
 nRF52840 board (target: "V1940 Pro Micro nRF52840", flashed as
-`nice_nano_v2` since it shares the nice!nano pinout). Works over BLE
+`nice_nano//zmk` since it shares the nice!nano v2 pinout). Works over BLE
 (pairs as a standard HID keyboard/consumer-control/mouse device — no
 drivers needed on macOS or Bluetooth-capable TVs) or over a USB cable,
 switchable at any time.
@@ -56,7 +56,7 @@ then, from the repo root:
 ```
 west init -l config
 west update
-west build -p -b nice_nano_v2 -- -DSHIELD=media_controller
+west build -p -b nice_nano//zmk -- -DSHIELD=media_controller
 ```
 
 The output `.uf2` will be in `build/zephyr/zmk.uf2`.

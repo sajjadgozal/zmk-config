@@ -1,0 +1,2 @@
+config SHIELD_MEDIA_CONTROLLER
+    def_bool $(shields_list_contains,media_controller)

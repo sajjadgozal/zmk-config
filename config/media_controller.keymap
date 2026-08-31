@@ -1,0 +1,59 @@
+/*
+ * Media Controller keymap
+ *
+ * Layout (physical positions 0-3):
+ *   0: prev        1: play/pause      2: next      3: encoder push (mute)
+ *   encoder turn: volume up / down
+ *
+ * Bluetooth profile switching (no dedicated buttons needed):
+ *   hold prev + next together      -> select profile 0 (use for macOS)
+ *   hold prev + play together      -> select profile 1 (use for TV)
+ *   hold play + next + enc-push    -> clear the currently active profile's pairing
+ *
+ * Pair to macOS: put device in profile 0 (prev+next combo), then pair from
+ * System Settings > Bluetooth as usual.
+ * Pair to a TV: switch to profile 1 (prev+play combo) and pair from the
+ * TV's Bluetooth settings. Repeat the combo any time to swap which device
+ * receives input - ZMK remembers both pairings.
+ */
+
+#include <behaviors.dtsi>
+#include <dt-bindings/zmk/keys.h>
+#include <dt-bindings/zmk/bt.h>
+#include <dt-bindings/zmk/outputs.h>
+
+/ {
+    combos {
+        compatible = "zmk,combos";
+
+        combo_bt_mac {
+            timeout-ms = <60>;
+            key-positions = <0 2>;
+            bindings = <&bt BT_SEL 0>;
+        };
+
+        combo_bt_tv {
+            timeout-ms = <60>;
+            key-positions = <0 1>;
+            bindings = <&bt BT_SEL 1>;
+        };
+
+        combo_bt_clear {
+            timeout-ms = <60>;
+            key-positions = <1 2 3>;
+            bindings = <&bt BT_CLR>;
+        };
+    };
+
+    keymap {
+        compatible = "zmk,keymap";
+
+        default_layer {
+            bindings = <
+                &kp C_PREV   &kp C_PP   &kp C_NEXT   &kp C_MUTE
+            >;
+
+            sensor-bindings = <&inc_dec_kp C_VOL_UP C_VOL_DN>;
+        };
+    };
+};

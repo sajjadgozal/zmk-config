@@ -1,0 +1,55 @@
+/*
+ * Media Controller shield
+ *
+ * 3 direct buttons (prev, play/pause, next) + 1 rotary encoder
+ * (volume up/down on turn, mute on press).
+ *
+ * Pin numbers below use the standard "pro_micro" connector index,
+ * which is portable across nice_nano_v2 and any Pro-Micro-footprint
+ * nRF52840 clone (like the V1940) that shares the same pinout.
+ * DOUBLE-CHECK these against your board's silkscreen before wiring —
+ * pick any free GPIO pins, these are just a sane starting point.
+ */
+
+#include <dt-bindings/zmk/matrix_transform.h>
+
+/ {
+    chosen {
+        zmk,kscan = &kscan0;
+        zmk,matrix-transform = &default_transform;
+    };
+
+    kscan0: kscan {
+        compatible = "zmk,kscan-gpio-direct";
+        wakeup-source;
+        input-gpios
+            = <&pro_micro 4 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>  // prev
+            , <&pro_micro 5 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>  // play/pause
+            , <&pro_micro 6 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>  // next
+            , <&pro_micro 7 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>  // encoder push (mute)
+            ;
+    };
+
+    default_transform: keymap_transform0 {
+        compatible = "zmk,matrix-transform";
+        columns = <4>;
+        rows = <1>;
+        //  prev    play/pause  next    enc-push
+        map = <
+            RC(0,0) RC(0,1)     RC(0,2) RC(0,3)
+        >;
+    };
+
+    left_encoder: encoder {
+        compatible = "alps,ec11";
+        a-gpios = <&pro_micro 20 (GPIO_ACTIVE_HIGH | GPIO_PULL_UP)>;
+        b-gpios = <&pro_micro 21 (GPIO_ACTIVE_HIGH | GPIO_PULL_UP)>;
+        steps = <80>;
+    };
+
+    sensors {
+        compatible = "zmk,keymap-sensors";
+        sensors = <&left_encoder>;
+        triggers-per-rotation = <20>;
+    };
+};

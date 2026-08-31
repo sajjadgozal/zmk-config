@@ -1,0 +1,5 @@
+# This file generates the GitHub Actions build matrix.
+---
+include:
+  - board: nice_nano_v2
+    shield: media_controller

@@ -1,17 +1,26 @@
 /*
  * Media Controller shield
  *
- * 3 direct buttons (prev, play/pause, next) + 1 rotary encoder
- * (volume up/down on turn, mute on press).
+ * 3 direct buttons (prev, play/pause, next), 1 rotary encoder
+ * (volume up/down on turn, mute on press), and an analog joystick
+ * (cursor movement, click = left-click).
  *
- * Pin numbers below use the standard "pro_micro" connector index,
- * which is portable across nice_nano_v2 and any Pro-Micro-footprint
+ * Digital pin numbers below use the standard "pro_micro" connector
+ * index, which is portable across nice_nano_v2 and any Pro-Micro-footprint
  * nRF52840 clone (like the V1940) that shares the same pinout.
  * DOUBLE-CHECK these against your board's silkscreen before wiring —
  * pick any free GPIO pins, these are just a sane starting point.
+ *
+ * The joystick's X/Y wires must land on ADC-capable SoC pins (AINx), so
+ * they're addressed directly as nRF52840 pins below rather than through
+ * &pro_micro. On most nice!nano-pinout boards these correspond to the
+ * pins labeled A0/A1 - confirm against your V1940's pinout diagram and
+ * change NRF_SAADC_AIN0/AIN1 (and P0.xx below) if it wires up differently.
  */
 
 #include <dt-bindings/zmk/matrix_transform.h>
+#include <zephyr/dt-bindings/adc/adc.h>
+#include <zephyr/dt-bindings/adc/nrf-saadc.h>
 
 / {
     chosen {
@@ -27,16 +36,17 @@
             , <&pro_micro 5 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>  // play/pause
             , <&pro_micro 6 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>  // next
             , <&pro_micro 7 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>  // encoder push (mute)
+            , <&pro_micro 9 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>  // joystick push (left-click)
             ;
     };
 
     default_transform: keymap_transform0 {
         compatible = "zmk,matrix-transform";
-        columns = <4>;
+        columns = <5>;
         rows = <1>;
-        //  prev    play/pause  next    enc-push
+        //  prev    play/pause  next    enc-push  joy-push
         map = <
-            RC(0,0) RC(0,1)     RC(0,2) RC(0,3)
+            RC(0,0) RC(0,1)     RC(0,2) RC(0,3)   RC(0,4)
         >;
     };
 
@@ -51,5 +61,41 @@
         compatible = "zmk,keymap-sensors";
         sensors = <&left_encoder>;
         triggers-per-rotation = <20>;
+    };
+
+    joystick: joystick {
+        compatible = "zmk,analog-joystick";
+        io-channels = <&adc 0>, <&adc 1>;
+        deadzone = <150>;
+        sensitivity = <24>;
+        poll-interval-ms = <20>;
+    };
+
+    joystick_listener: joystick_listener {
+        compatible = "zmk,input-listener";
+        device = <&joystick>;
+    };
+};
+
+&adc {
+    #address-cells = <1>;
+    #size-cells = <0>;
+
+    channel@0 {
+        reg = <0>;
+        zephyr,gain = "ADC_GAIN_1_6";
+        zephyr,reference = "ADC_REF_INTERNAL";
+        zephyr,acquisition-time = <ADC_ACQ_TIME(ADC_ACQ_TIME_MICROSECONDS, 40)>;
+        zephyr,input-positive = <NRF_SAADC_AIN0>; // joystick X - verify vs your board's "A0"
+        zephyr,resolution = <12>;
+    };
+
+    channel@1 {
+        reg = <1>;
+        zephyr,gain = "ADC_GAIN_1_6";
+        zephyr,reference = "ADC_REF_INTERNAL";
+        zephyr,acquisition-time = <ADC_ACQ_TIME(ADC_ACQ_TIME_MICROSECONDS, 40)>;
+        zephyr,input-positive = <NRF_SAADC_AIN1>; // joystick Y - verify vs your board's "A1"
+        zephyr,resolution = <12>;
     };
 };

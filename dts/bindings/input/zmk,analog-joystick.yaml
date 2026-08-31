@@ -1,0 +1,36 @@
+description: |
+  Two-axis analog joystick (e.g. a salvaged PS5 controller thumbstick)
+  reporting relative mouse-movement input events proportional to
+  deflection from center, like a trackpoint.
+
+compatible: "zmk,analog-joystick"
+
+include: base.yaml
+
+properties:
+  io-channels:
+    type: phandle-array
+    required: true
+    description: |
+      ADC channels for the joystick axes, X first then Y.
+      Example: io-channels = <&adc 0>, <&adc 1>;
+
+  deadzone:
+    type: int
+    default: 150
+    description: |
+      Minimum deflection, in raw ADC counts, from the resting center
+      position before any movement is reported. Increase if the cursor
+      drifts at rest.
+
+  sensitivity:
+    type: int
+    default: 24
+    description: |
+      Divisor applied to raw deflection to compute reported movement per
+      poll. Higher values mean slower cursor movement.
+
+  poll-interval-ms:
+    type: int
+    default: 20
+    description: How often to sample the joystick and report movement.

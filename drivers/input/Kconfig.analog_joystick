@@ -1,0 +1,9 @@
+config INPUT_ANALOG_JOYSTICK
+    bool "Analog joystick input driver"
+    default y
+    depends on DT_HAS_ZMK_ANALOG_JOYSTICK_ENABLED
+    select ADC
+    select INPUT
+    help
+      Two-axis analog joystick (e.g. a salvaged PS5 controller thumbstick)
+      read via ADC and reported as relative mouse-movement input events.

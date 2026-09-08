@@ -5,17 +5,29 @@
  * (volume up/down on turn, mute on press), and an analog joystick
  * (cursor movement, click = left-click).
  *
- * Digital pin numbers below use the standard "pro_micro" connector
- * index, which is portable across nice_nano//zmk and any Pro-Micro-footprint
- * nRF52840 clone (like the V1940) that shares the same pinout.
- * DOUBLE-CHECK these against your board's silkscreen before wiring —
- * pick any free GPIO pins, these are just a sane starting point.
+ * Pin numbers below use the standard nice!nano "pro_micro" connector
+ * index (defined in ZMK's arduino_pro_micro_pins.dtsi), which is
+ * portable across nice_nano//zmk and any Pro-Micro-footprint nRF52840
+ * clone (like the V1940) that shares the same pinout - VERIFY your
+ * V1940's silkscreen labels against this table before soldering:
  *
- * The joystick's X/Y wires must land on ADC-capable SoC pins (AINx), so
- * they're addressed directly as nRF52840 pins below rather than through
- * &pro_micro. On most nice!nano-pinout boards these correspond to the
- * pins labeled A0/A1 - confirm against your V1940's pinout diagram and
- * change NRF_SAADC_AIN0/AIN1 (and P0.xx below) if it wires up differently.
+ *   Signal              pro_micro index   Silkscreen label
+ *   prev                4                 D4
+ *   play/pause          5                 D5
+ *   next                6                 D6
+ *   encoder push (mute) 7                 D7
+ *   joystick push       9                 D9
+ *   encoder A           8                 D8
+ *   encoder B           10                D10
+ *   joystick X (ADC)    19 (AIN0)         A1
+ *   joystick Y (ADC)    20 (AIN5)         A2
+ *
+ * Only 3 pins on the nice!nano header are true ADC-capable pins: the
+ * ones silkscreened A1/A2/A3 (SoC pins P0.02/P0.29/P0.31 = AIN0/AIN5/
+ * AIN7). The pin labeled A0 is NOT ADC-capable on this chip (routed to
+ * P1.15, unlike a real Arduino) - don't use it for the joystick. That's
+ * why joystick X/Y are wired to A1/A2 here, and the encoder was moved
+ * off A2/A3 to free them up.
  */
 
 #include <dt-bindings/zmk/matrix_transform.h>
@@ -52,8 +64,8 @@
 
     left_encoder: encoder {
         compatible = "alps,ec11";
-        a-gpios = <&pro_micro 20 (GPIO_ACTIVE_HIGH | GPIO_PULL_UP)>;
-        b-gpios = <&pro_micro 21 (GPIO_ACTIVE_HIGH | GPIO_PULL_UP)>;
+        a-gpios = <&pro_micro 8 (GPIO_ACTIVE_HIGH | GPIO_PULL_UP)>;
+        b-gpios = <&pro_micro 10 (GPIO_ACTIVE_HIGH | GPIO_PULL_UP)>;
         steps = <80>;
     };
 
@@ -86,7 +98,7 @@
         zephyr,gain = "ADC_GAIN_1_6";
         zephyr,reference = "ADC_REF_INTERNAL";
         zephyr,acquisition-time = <ADC_ACQ_TIME(ADC_ACQ_TIME_MICROSECONDS, 40)>;
-        zephyr,input-positive = <NRF_SAADC_AIN0>; // joystick X - verify vs your board's "A0"
+        zephyr,input-positive = <NRF_SAADC_AIN0>; // joystick X - pro_micro pin 19, silkscreen "A1"
         zephyr,resolution = <12>;
     };
 
@@ -95,7 +107,7 @@
         zephyr,gain = "ADC_GAIN_1_6";
         zephyr,reference = "ADC_REF_INTERNAL";
         zephyr,acquisition-time = <ADC_ACQ_TIME(ADC_ACQ_TIME_MICROSECONDS, 40)>;
-        zephyr,input-positive = <NRF_SAADC_AIN1>; // joystick Y - verify vs your board's "A1"
+        zephyr,input-positive = <NRF_SAADC_AIN5>; // joystick Y - pro_micro pin 20, silkscreen "A2"
         zephyr,resolution = <12>;
     };
 };

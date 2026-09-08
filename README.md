@@ -34,21 +34,31 @@ switchable at any time.
   the overlay once it's flashed to real hardware.
 - `build.yaml` — tells GitHub Actions which board+shield to build
 
-## ⚠️ Before you wire anything up
+## Pin layout
 
-The digital pin numbers in
-`boards/shields/media_controller/media_controller.overlay`
-(`&pro_micro 4/5/6/7/9` for buttons, `&pro_micro 20/21` for the encoder)
-are a reasonable starting guess for a nice!nano-pinout board, **not
-verified against your specific V1940 board's silkscreen**. The joystick's
-X/Y wires are different: they must land on ADC-capable pins, referenced
-directly as `NRF_SAADC_AIN0`/`AIN1` in the overlay (these usually
-correspond to the pins labeled `A0`/`A1` on nice!nano-pinout boards).
-Before soldering, check your board's pinout diagram and adjust:
+| Signal | pro_micro index | Silkscreen label (nice!nano-pinout boards) |
+|---|---|---|
+| prev | 4 | D4 |
+| play/pause | 5 | D5 |
+| next | 6 | D6 |
+| encoder push (mute) | 7 | D7 |
+| joystick push (left-click) | 9 | D9 |
+| encoder A | 8 | D8 |
+| encoder B | 10 | D10 |
+| joystick X | 19 (AIN0) | A1 |
+| joystick Y | 20 (AIN5) | A2 |
 
-- button/encoder pins → any free digital GPIO works
-- joystick X/Y → must be ADC-capable pins; update `NRF_SAADC_AINx` to
-  match whichever analog pins you actually use
+⚠️ **Verify this against your V1940's actual silkscreen before soldering**
+— this table assumes it's pin-compatible with nice!nano (true for most
+"Pro Micro nRF52840" clones, but not guaranteed). Two things worth
+knowing if you need to change pins:
+
+- Buttons/encoder can go on any free digital GPIO.
+- The joystick's X/Y wires **must** land on ADC-capable pins. On this
+  chip, only 3 header pins qualify — the ones silkscreened `A1`/`A2`/`A3`.
+  The pin labeled `A0` is *not* ADC-capable here (unlike on a real
+  Arduino), so don't use it for the joystick even though the label
+  suggests otherwise.
 
 ## Building the firmware
 
@@ -108,6 +118,44 @@ your TV without re-pairing every time.
 | Encoder push | Mute |
 | Joystick tilt | Move mouse cursor |
 | Joystick push | Left click |
+
+## First-time bring-up / testing
+
+Test incrementally rather than wiring everything and hoping — each stage
+below is independently checkable:
+
+1. **Flash with nothing wired yet.** Confirm the board powers up, enters
+   bootloader mode on double-tap-reset, and boots the new firmware
+   without crashing (an LED blink pattern or just staying enumerated over
+   USB is enough evidence — see Flashing above).
+2. **Buttons first.** Wire just `prev`/`play/pause`/`next` and pair over
+   BLE (or plug in via USB — no pairing needed to test). On macOS, open
+   any media app (Music, Spotify, a YouTube tab) and press each button;
+   you should see play/pause/track-change respond immediately. If a
+   button does nothing, double check it's on the pin the overlay expects
+   and that it's wired to *ground* (these use `GPIO_ACTIVE_LOW` +
+   internal pull-up, so a press should short the pin to GND).
+3. **Encoder next.** Wire the encoder A/B pins and its push button. Turn
+   it — volume should move in the OS. If it moves the wrong direction,
+   swap the A/B wires (or swap `a-gpios`/`b-gpios` in the overlay). Push
+   should mute.
+4. **Joystick last**, since it's the least tested part of this build.
+   Wire X/Y to the two ADC pins from the table above and the click button
+   to its digital pin. On macOS, watch the cursor: it should sit still at
+   rest and move when tilted. If it drifts at rest, increase `deadzone`
+   in the overlay's `joystick` node; if too slow/fast, adjust
+   `sensitivity` (lower = faster). Each tuning change needs a re-flash.
+5. **Bluetooth profile switching.** With everything wired, test the
+   pairing combos (see Pairing below) — pair to macOS on profile 0, then
+   try the TV/profile 1 combo and confirm it visibly disconnects from one
+   and becomes discoverable for the other.
+6. **USB fallback.** Plug in a USB-C cable and use the output-toggle
+   combo; confirm the device still responds when BLE is out of range or
+   off, without needing to re-pair anything.
+
+If a stage fails, isolate it: comment out later stages in the overlay
+(or just don't wire them yet) so you know exactly which piece to
+debug — don't debug all five inputs at once.
 
 ## Tuning the joystick
 

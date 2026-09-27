@@ -51,9 +51,17 @@ struct analog_joystick_data {
     struct k_work_delayable work;
     int32_t center_x;
     int32_t center_y;
+    int32_t last_raw_x;
+    int32_t last_raw_y;
     bool calibrated;
+    bool idle_synced;
     uint32_t x_arrow_key;
     uint32_t y_arrow_key;
+
+    /* Incremental, non-blocking boot calibration state. */
+    int32_t calibration_sum_x;
+    int32_t calibration_sum_y;
+    uint8_t calibration_samples;
 };
 
 /*
@@ -67,8 +75,16 @@ struct analog_joystick_data {
  * already *within* the deadzone.
  */
 #define CALIBRATION_DELAY_MS 2000
+#define CALIBRATION_SAMPLES 8
+#define CALIBRATION_SAMPLE_INTERVAL_MS 5
 
-static int32_t analog_joystick_read(const struct adc_dt_spec *spec) {
+/*
+ * Reads one ADC channel. Returns 0 and writes the raw value to *out on
+ * success, or a negative error code on failure - callers should fall
+ * back to the last known-good reading rather than treating a failed
+ * read as a real, extreme deflection.
+ */
+static int analog_joystick_read(const struct adc_dt_spec *spec, int32_t *out) {
     int16_t buf = 0;
     struct adc_sequence sequence = {
         .buffer = &buf,
@@ -78,35 +94,60 @@ static int32_t analog_joystick_read(const struct adc_dt_spec *spec) {
     int err = adc_sequence_init_dt(spec, &sequence);
     if (err < 0) {
         LOG_ERR("Failed to init ADC sequence: %d", err);
-        return 0;
+        return err;
     }
 
     err = adc_read(spec->dev, &sequence);
     if (err < 0) {
         LOG_ERR("ADC read failed: %d", err);
-        return 0;
+        return err;
     }
 
-    return buf;
+    *out = buf;
+    return 0;
 }
 
-static void analog_joystick_calibrate(struct analog_joystick_data *data,
-                                       const struct analog_joystick_config *cfg) {
-    int32_t sum_x = 0;
-    int32_t sum_y = 0;
-    const int samples = 8;
+/*
+ * Advances one step of the incremental boot calibration and reschedules
+ * itself. Non-blocking - each call takes one sample and returns, rather
+ * than blocking the shared system work queue for the whole calibration
+ * window (as a k_msleep() loop would).
+ */
+static void analog_joystick_calibrate_step(struct analog_joystick_data *data,
+                                            const struct analog_joystick_config *cfg) {
+    int32_t x, y;
+    bool ok_x = analog_joystick_read(&cfg->x_channel, &x) == 0;
+    bool ok_y = analog_joystick_read(&cfg->y_channel, &y) == 0;
 
-    for (int i = 0; i < samples; i++) {
-        sum_x += analog_joystick_read(&cfg->x_channel);
-        sum_y += analog_joystick_read(&cfg->y_channel);
-        k_msleep(5);
+    if (ok_x) {
+        data->calibration_sum_x += x;
+    }
+    if (ok_y) {
+        data->calibration_sum_y += y;
+    }
+    if (ok_x || ok_y) {
+        data->calibration_samples++;
     }
 
-    data->center_x = sum_x / samples;
-    data->center_y = sum_y / samples;
+    if (data->calibration_samples < CALIBRATION_SAMPLES) {
+        k_work_schedule(&data->work, K_MSEC(CALIBRATION_SAMPLE_INTERVAL_MS));
+        return;
+    }
+
+    if (data->calibration_samples > 0) {
+        data->center_x = data->calibration_sum_x / data->calibration_samples;
+        data->center_y = data->calibration_sum_y / data->calibration_samples;
+    } else {
+        LOG_ERR("Calibration got no valid ADC samples; defaulting center to 0");
+        data->center_x = 0;
+        data->center_y = 0;
+    }
+    data->last_raw_x = data->center_x;
+    data->last_raw_y = data->center_y;
     data->calibrated = true;
 
     LOG_INF("Calibrated center: x=%d y=%d", data->center_x, data->center_y);
+    k_work_schedule(&data->work, K_MSEC(cfg->poll_interval_ms));
 }
 
 static void analog_joystick_release_arrow_keys(struct analog_joystick_data *data) {
@@ -182,23 +223,47 @@ static void analog_joystick_update_arrow_keys(struct analog_joystick_data *data,
     }
 }
 
-static void analog_joystick_update_mouse_move(struct analog_joystick_data *data, int32_t dx,
-                                               int32_t dy, int32_t sensitivity) {
-    int32_t move_x = dx / sensitivity;
-    int32_t move_y = dy / sensitivity;
-    bool report_x = move_x != 0;
-    bool report_y = move_y != 0;
+/*
+ * Mouse mode: reports relative cursor movement while deflection exceeds
+ * the deadzone. Sends the zero-delta "stop" sync event only once, on the
+ * transition back to rest, rather than every idle poll cycle - avoiding
+ * needless HID/BLE traffic while the stick just sits centered.
+ */
+static void analog_joystick_update_mouse_move(struct analog_joystick_data *data,
+                                               const struct analog_joystick_config *cfg,
+                                               int32_t dx, int32_t dy) {
+    int32_t sensitivity = cfg->sensitivity > 0 ? (int32_t)cfg->sensitivity : 1;
+    bool report_x = false;
+    bool report_y = false;
+    int32_t move_x = 0;
+    int32_t move_y = 0;
+
+    if (dx > cfg->deadzone || dx < -cfg->deadzone) {
+        move_x = dx / sensitivity;
+        report_x = move_x != 0;
+    }
+
+    if (dy > cfg->deadzone || dy < -cfg->deadzone) {
+        move_y = dy / sensitivity;
+        report_y = move_y != 0;
+    }
+
+    if (!report_x && !report_y) {
+        if (!data->idle_synced) {
+            input_report_rel(data->dev, INPUT_REL_X, 0, true, K_NO_WAIT);
+            data->idle_synced = true;
+        }
+        return;
+    }
+
+    data->idle_synced = false;
 
     /*
      * Exactly one call per cycle must carry sync=true - the mouse HID
      * listener accumulates dx/dy across calls and only flushes an HID
-     * report on the synced call. Previously X was always reported with
-     * sync=false, and the fallback sync-only event only fired when
-     * *nothing* moved - so an X-only movement (Y within its deadzone)
-     * queued a delta that never got flushed. Report Y last (if it's
-     * firing) since it's naturally the synced call already; otherwise
-     * make X the synced call; otherwise send a zero-delta synced event
-     * so listeners don't stall.
+     * report on the synced call. Report Y last (if it's firing) since
+     * it's naturally the synced call already; otherwise make X the
+     * synced call.
      */
     if (report_x) {
         input_report_rel(data->dev, INPUT_REL_X, move_x, !report_y, K_NO_WAIT);
@@ -206,10 +271,6 @@ static void analog_joystick_update_mouse_move(struct analog_joystick_data *data,
 
     if (report_y) {
         input_report_rel(data->dev, INPUT_REL_Y, move_y, true, K_NO_WAIT);
-    }
-
-    if (!report_x && !report_y) {
-        input_report_rel(data->dev, INPUT_REL_X, 0, true, K_NO_WAIT);
     }
 }
 
@@ -220,13 +281,23 @@ static void analog_joystick_work_handler(struct k_work *work) {
     const struct analog_joystick_config *cfg = data->dev->config;
 
     if (!data->calibrated) {
-        analog_joystick_calibrate(data, cfg);
-        k_work_schedule(&data->work, K_MSEC(cfg->poll_interval_ms));
+        analog_joystick_calibrate_step(data, cfg);
         return;
     }
 
-    int32_t raw_x = analog_joystick_read(&cfg->x_channel);
-    int32_t raw_y = analog_joystick_read(&cfg->y_channel);
+    int32_t raw_x, raw_y;
+
+    /* On a failed read, fall back to the last known-good value rather
+     * than treating the failure as a real (and likely extreme)
+     * deflection. */
+    if (analog_joystick_read(&cfg->x_channel, &raw_x) != 0) {
+        raw_x = data->last_raw_x;
+    }
+    if (analog_joystick_read(&cfg->y_channel, &raw_y) != 0) {
+        raw_y = data->last_raw_y;
+    }
+    data->last_raw_x = raw_x;
+    data->last_raw_y = raw_y;
 
     int32_t dx = raw_x - data->center_x;
     int32_t dy = raw_y - data->center_y;
@@ -259,7 +330,7 @@ static void analog_joystick_work_handler(struct k_work *work) {
             /* Layer changed mid-hold - don't leave an arrow key stuck down. */
             analog_joystick_release_arrow_keys(data);
         }
-        analog_joystick_update_mouse_move(data, dx, dy, (int32_t)cfg->sensitivity);
+        analog_joystick_update_mouse_move(data, cfg, dx, dy);
     }
 
     k_work_schedule(&data->work, K_MSEC(cfg->poll_interval_ms));
@@ -288,14 +359,18 @@ static int analog_joystick_init(const struct device *dev) {
 
     data->dev = dev;
     data->calibrated = false;
+    data->idle_synced = false;
     data->x_arrow_key = 0;
     data->y_arrow_key = 0;
+    data->calibration_sum_x = 0;
+    data->calibration_sum_y = 0;
+    data->calibration_samples = 0;
 
     /*
-     * Calibration happens on the work queue's first run (see
-     * analog_joystick_work_handler), not here - this avoids a multi-
-     * second blocking sleep in device init, which would delay every
-     * other POST_KERNEL driver that initializes after this one
+     * Calibration happens incrementally on the work queue (see
+     * analog_joystick_calibrate_step), not here - this avoids a
+     * multi-sample blocking sleep in device init, which would delay
+     * every other POST_KERNEL driver that initializes after this one
      * (including the BLE stack).
      */
     k_work_init_delayable(&data->work, analog_joystick_work_handler);

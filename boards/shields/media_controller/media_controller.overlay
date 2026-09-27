@@ -82,7 +82,7 @@
 
     joystick: joystick {
         compatible = "zmk,analog-joystick";
-        io-channels = <&adc 0>, <&adc 1>;
+        io-channels = <&adc 1>, <&adc 2>;
         deadzone = <200>;
         sensitivity = <80>;
         poll-interval-ms = <20>;
@@ -98,8 +98,22 @@
     #address-cells = <1>;
     #size-cells = <0>;
 
-    channel@0 {
-        reg = <0>;
+    /*
+     * Channel IDs 1/2 here, deliberately not 0/1: ZMK's own battery
+     * voltage sensor (zmk,battery-nrf-vddh, enabled via
+     * CONFIG_ZMK_BATTERY_REPORTING) hardcodes ADC channel ID 0 for
+     * reading VDDHDIV5 (see app/module/drivers/sensor/battery/
+     * battery_nrf_vddh.c upstream). The nRF SAADC's channel-config table
+     * is shared/global, so if our joystick also claimed channel 0, the
+     * two drivers' adc_channel_setup() calls would silently overwrite
+     * each other at boot - whichever ran last would win, and the other
+     * would end up reading battery voltage instead of its intended pin.
+     * That's exactly what happened here: joystick X was actually
+     * sampling VDDH the whole time, appearing "frozen" at whatever the
+     * battery voltage was and completely unresponsive to movement.
+     */
+    channel@1 {
+        reg = <1>;
         zephyr,gain = "ADC_GAIN_1_6";
         zephyr,reference = "ADC_REF_INTERNAL";
         zephyr,acquisition-time = <ADC_ACQ_TIME(ADC_ACQ_TIME_MICROSECONDS, 40)>;
@@ -107,8 +121,8 @@
         zephyr,resolution = <12>;
     };
 
-    channel@1 {
-        reg = <1>;
+    channel@2 {
+        reg = <2>;
         zephyr,gain = "ADC_GAIN_1_6";
         zephyr,reference = "ADC_REF_INTERNAL";
         zephyr,acquisition-time = <ADC_ACQ_TIME(ADC_ACQ_TIME_MICROSECONDS, 40)>;

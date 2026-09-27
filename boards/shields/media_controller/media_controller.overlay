@@ -83,8 +83,8 @@
     joystick: joystick {
         compatible = "zmk,analog-joystick";
         io-channels = <&adc 0>, <&adc 1>;
-        deadzone = <150>;
-        sensitivity = <24>;
+        deadzone = <200>;
+        sensitivity = <80>;
         poll-interval-ms = <20>;
     };
 

@@ -70,6 +70,8 @@ static void analog_joystick_work_handler(struct k_work *work) {
     int32_t dx = raw_x - data->center_x;
     int32_t dy = raw_y - data->center_y;
 
+    LOG_DBG("raw_x=%d raw_y=%d dx=%d dy=%d", raw_x, raw_y, dx, dy);
+
     bool moved = false;
 
     if (dx > cfg->deadzone || dx < -cfg->deadzone) {
@@ -118,9 +120,30 @@ static int analog_joystick_init(const struct device *dev) {
     }
 
     data->dev = dev;
-    /* Sample once at boot to establish the resting center position. */
-    data->center_x = analog_joystick_read(&cfg->x_channel);
-    data->center_y = analog_joystick_read(&cfg->y_channel);
+
+    /*
+     * Let the sensor's analog output settle before treating it as the
+     * resting center - important for magnetic (TMR/Hall) joystick
+     * modules, whose sensing element can still be stabilizing right at
+     * power-on, unlike a plain potentiometer. Then average several
+     * samples rather than trusting a single (possibly noisy) read.
+     */
+    k_msleep(100);
+
+    int32_t sum_x = 0;
+    int32_t sum_y = 0;
+    const int samples = 8;
+
+    for (int i = 0; i < samples; i++) {
+        sum_x += analog_joystick_read(&cfg->x_channel);
+        sum_y += analog_joystick_read(&cfg->y_channel);
+        k_msleep(5);
+    }
+
+    data->center_x = sum_x / samples;
+    data->center_y = sum_y / samples;
+
+    LOG_INF("Calibrated center: x=%d y=%d", data->center_x, data->center_y);
 
     k_work_init_delayable(&data->work, analog_joystick_work_handler);
     k_work_schedule(&data->work, K_MSEC(cfg->poll_interval_ms));

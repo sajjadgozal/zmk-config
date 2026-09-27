@@ -4,10 +4,10 @@ include:
   - board: nice_nano//zmk
     shield: media_controller
   # Temporary debug build with a USB serial console for troubleshooting
-  # the encoder - see README "Debugging over USB serial". Safe to
-  # remove once debugging is done.
+  # the encoder and joystick - see README "Debugging over USB serial".
+  # Safe to remove once debugging is done.
   - board: nice_nano//zmk
     shield: media_controller
     snippet: zmk-usb-logging
     artifact-name: media_controller-debug-log
-    cmake-args: -DCONFIG_SENSOR_LOG_LEVEL_DBG=y
+    cmake-args: -DCONFIG_SENSOR_LOG_LEVEL_DBG=y -DCONFIG_INPUT_LOG_LEVEL_DBG=y

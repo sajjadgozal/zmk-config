@@ -92,6 +92,42 @@ The output `.uf2` will be in `build/zephyr/zmk.uf2`.
 2. Drag `zmk.uf2` onto that drive. The board reboots automatically running
    the new firmware.
 
+## Debugging over USB serial
+
+`build.yaml` includes a second build entry, `media_controller-debug-log`,
+that adds a USB serial console (via ZMK's official `zmk-usb-logging`
+snippet) alongside the normal HID interface, with debug-level logging
+enabled for sensors (covers the EC11 encoder driver).
+
+1. From a completed GitHub Actions run, download the
+   `media_controller-debug-log` artifact instead of the normal one, and
+   flash that `.uf2` the same way (see Flashing above).
+2. Plug the board into your Mac via USB-C (it works over USB even though
+   this is otherwise a BLE-first build).
+3. Find the serial device and open a terminal to it:
+   ```
+   ls /dev/tty.usbmodem*
+   screen /dev/tty.usbmodem<whatever showed up> 115200
+   ```
+   (`Ctrl-A` then `K` to exit `screen` when done.)
+4. Turn the encoder and watch the output. You're looking for lines from
+   the `EC11` log module (e.g. `A: ... B: ... resolution ...` at boot,
+   then `Delta: ...` as you turn it):
+   - **Nothing at all appears when turning it** → the driver isn't
+     seeing GPIO transitions - almost certainly a wiring issue (see the
+     multimeter test from before) rather than firmware.
+   - **`Delta:` lines appear but volume still doesn't change** → the
+     encoder and driver are fine; the problem is downstream (HID
+     report, BLE/USB connection, or OS-side). Check `sensor-bindings` in
+     the keymap and confirm the device is actually connected.
+   - **`LOG_ERR("A/B GPIO device is not ready")` at boot** → a
+     devicetree/pin configuration problem, not wiring - come back with
+     that exact message.
+5. This is a temporary debug artifact - once you've diagnosed the issue,
+   remove the second entry from `build.yaml` (or just keep using the
+   normal artifact for everyday flashing; the debug one is only for
+   troubleshooting sessions like this).
+
 ## Pairing
 
 ZMK keeps up to 5 separate Bluetooth pairings ("profiles") and you switch

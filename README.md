@@ -1,7 +1,7 @@
 # media_controller
 
 A ZMK-based media remote / mini pointing device: 3 buttons (play-pause /
-next / prev), an encoder push button bound to mute, a rotary encoder
+back / home), an encoder push button bound to mute, a rotary encoder
 (volume on turn), a mode-toggle button, and a joystick — built for a
 Pro-Micro-footprint nRF52840 board (target: "V1940 Pro Micro nRF52840",
 flashed as `nice_nano//zmk` since it shares the nice!nano v2 pinout).
@@ -10,7 +10,7 @@ device — no drivers needed on macOS or Bluetooth-capable TVs) or over a
 USB cable, switchable at any time.
 
 Two keymap layers, swapped with the mode-toggle button, change what the
-joystick does — everything else (play/pause/next/prev/mute/volume) is
+joystick does — everything else (play/pause/back/home/mute/volume) is
 identical in both:
 
 - **Mouse mode** (default): joystick tilt moves the cursor, joystick
@@ -53,8 +53,8 @@ See "Modes" below for details.
 | Signal | pro_micro index | Silkscreen label |
 |---|---|---|
 | play/pause | 16 (P0.10) | D16 |
-| next | 10 (P0.09) | D10 |
-| prev | 21 (P0.31) | A3 |
+| back (Escape) | 10 (P0.09) | D10 |
+| home (Media Select Home) | 21 (P0.31) | A3 |
 | mode-toggle | 3 | D3 |
 | encoder push (mute) | 2 | D2 |
 | joystick push (left-click) | 18 (P1.15) | A0 |
@@ -65,7 +65,7 @@ See "Modes" below for details.
 
 Joystick X/Y are true analog readings here — A1/A2 (P0.02/P0.29 =
 AIN0/AIN5) are 2 of the board's only 3 SAADC-capable pins (confirmed
-against Nordic's official nRF52840 datasheet). play/pause and next moved
+against Nordic's official nRF52840 datasheet). play/pause and back moved
 onto D10/D16 (P0.09/P0.10, the chip's NFC1/NFC2 antenna pins) to free up
 A1/A2 for the joystick — that's electrically fine for plain digital
 buttons (`CONFIG_NFCT_PINS_AS_GPIOS=y` makes them usable as GPIO at all).
@@ -136,18 +136,18 @@ ZMK keeps up to 5 separate Bluetooth pairings ("profiles") and you switch
 which one is active — that's how one device talks to both your Mac and
 your TV without re-pairing every time.
 
-- **Pair to macOS:** hold `prev` + `next` together (selects profile 0),
+- **Pair to macOS:** hold `home` + `back` together (selects profile 0),
   then on the Mac go to System Settings → Bluetooth and pair with
   "Media Remote".
-- **Pair to a TV:** hold `prev` + `play/pause` together (selects profile
+- **Pair to a TV:** hold `home` + `play/pause` together (selects profile
   1), then pair from the TV's Bluetooth settings menu.
 - **Switch between them later:** just repeat the relevant combo — no
   re-pairing needed, ZMK remembers both.
-- **Clear a broken pairing:** hold `play/pause` + `next` + the
+- **Clear a broken pairing:** hold `play/pause` + `back` + the
   mode-toggle button together to forget the currently active profile's
   pairing, then pair again. (This combo works regardless of which mode
   layer is active.)
-- **Switch USB ↔ Bluetooth:** hold `play/pause` + `next` + the joystick
+- **Switch USB ↔ Bluetooth:** hold `play/pause` + `back` + the joystick
   push button together to toggle output. Plug in a cable any time you
   want wired/zero-latency mode.
 
@@ -169,7 +169,7 @@ it stays until you toggle it again, no holding required.
   repeats "right arrow" the way holding a real arrow key does); joystick
   push = Enter.
 
-Everything else — play/pause, next, prev, mute, volume, and the
+Everything else — play/pause, back, home, mute, volume, and the
 Bluetooth/output combos — behaves identically in both modes; only the
 joystick's behavior changes. The switch happens inside the joystick
 driver itself (it checks whether keymap layer 1 is active), not through
@@ -185,8 +185,8 @@ add more layers of your own, edit `arrow-layer` in the overlay's
 | Input | Action (mouse mode) | Action (arrow mode) |
 |---|---|---|
 | `play/pause` button | Play / pause | Play / pause |
-| `next` button | Next track | Next track |
-| `prev` button | Previous track | Previous track |
+| `back` button | Back (Escape) | Back (Escape) |
+| `home` button | Home | Home |
 | Encoder turn | Volume up / down | Volume up / down |
 | Encoder push | Mute | Mute |
 | Mode-toggle button | Switch to arrow mode | Switch to mouse mode |
@@ -202,12 +202,15 @@ below is independently checkable:
    bootloader mode on double-tap-reset, and boots the new firmware
    without crashing (an LED blink pattern or just staying enumerated over
    USB is enough evidence — see Flashing above).
-2. **Buttons first.** Wire just `play/pause`/`next`/`prev`. On macOS,
-   open any media app (Music, Spotify, a YouTube tab) and press each
-   button; you should see play/pause/track-change respond immediately.
-   If a button does nothing, double check it's on the pin the overlay
-   expects and that it's wired to *ground* (these use `GPIO_ACTIVE_LOW` +
-   internal pull-up, so a press should short the pin to GND).
+2. **Buttons first.** Wire just `play/pause`/`back`/`home`. On macOS,
+   open any media app (Music, Spotify, a YouTube tab) and press
+   play/pause to confirm it responds; `back`/`home` are Android-oriented
+   (Escape / Media Select Home) so they may do nothing meaningful on
+   macOS — that's expected, test those on the TV instead. If a button
+   does nothing at all anywhere, double check it's on the pin the
+   overlay expects and that it's wired to *ground* (these use
+   `GPIO_ACTIVE_LOW` + internal pull-up, so a press should short the pin
+   to GND).
 3. **Encoder next.** Wire the encoder A/B pins and its push button. Turn
    it — volume should move in the OS; push should mute. If it moves the
    wrong direction, swap the A/B wires (or swap the two args in

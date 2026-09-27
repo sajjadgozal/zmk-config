@@ -34,3 +34,11 @@ properties:
     type: int
     default: 20
     description: How often to sample the joystick and report movement.
+
+  arrow-layer:
+    type: int
+    default: 1
+    description: |
+      ZMK keymap layer index. While this layer is active, the joystick
+      reports arrow-key presses (held while tilted past the deadzone,
+      released when centered) instead of relative mouse movement.

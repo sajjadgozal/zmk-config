@@ -2,18 +2,27 @@
  * Media Controller keymap
  *
  * Layout (physical positions 0-5):
- *   0: play/pause   1: next   2: prev   3: spare button (unbound)   4: encoder push (mute)   5: joystick push (left-click)
- *   encoder turn: volume up / down
- *   joystick tilt: mouse cursor movement (true analog - see overlay's
- *   zmk,analog-joystick node and drivers/input/analog_joystick.c;
- *   not bound here since it's a separate input-listener pipeline, not
- *   a kscan position)
+ *   0: play/pause   1: next   2: prev   3: mode-toggle button   4: encoder push (mute)   5: joystick push
+ *   encoder turn: volume up / down (same in both layers)
  *
- * Bluetooth profile switching (no dedicated buttons needed):
+ * Two layers, toggled by the mode-toggle button (was spare/unbound):
+ *   Layer 0 (mouse mode, default): joystick tilt moves the mouse
+ *     cursor, joystick push = left-click.
+ *   Layer 1 (arrow mode): joystick tilt sends arrow-key presses
+ *     (held while tilted, released when centered), joystick push =
+ *     Enter - a natural pairing for keyboard-style menu navigation.
+ * play/pause, next, prev, mute, and volume are identical in both
+ * layers. The joystick's actual behavior switch happens inside the
+ * driver itself (drivers/input/analog_joystick.c watches whether layer
+ * 1 is active), not here - it's a separate input-listener pipeline, not
+ * a kscan position, so it has no keymap binding of its own.
+ *
+ * Bluetooth profile switching (no dedicated buttons needed, works from
+ * either mode layer):
  *   hold prev + next together          -> select profile 0 (use for macOS)
  *   hold prev + play together          -> select profile 1 (use for TV)
- *   hold play + next + spare-btn       -> clear the currently active profile's pairing
- *   hold play + next + joy-push        -> toggle output between USB and BLE
+ *   hold play + next + mode-toggle      -> clear the currently active profile's pairing
+ *   hold play + next + joy-push         -> toggle output between USB and BLE
  *
  * Pair to macOS: put device in profile 0 (prev+next combo), then pair from
  * System Settings > Bluetooth as usual.
@@ -62,9 +71,17 @@
     keymap {
         compatible = "zmk,keymap";
 
-        default_layer {
+        mouse_layer {
             bindings = <
-                &kp C_PP   &kp C_NEXT   &kp C_PREV   &none   &kp C_MUTE   &mkp LCLK
+                &kp C_PP   &kp C_NEXT   &kp C_PREV   &tog 1   &kp C_MUTE   &mkp LCLK
+            >;
+
+            sensor-bindings = <&inc_dec_kp C_VOL_DN C_VOL_UP>;
+        };
+
+        arrow_layer {
+            bindings = <
+                &kp C_PP   &kp C_NEXT   &kp C_PREV   &tog 1   &kp C_MUTE   &kp RET
             >;
 
             sensor-bindings = <&inc_dec_kp C_VOL_DN C_VOL_UP>;

@@ -2,12 +2,23 @@
 
 A ZMK-based media remote / mini pointing device: 3 buttons (play-pause /
 next / prev), an encoder push button bound to mute, a rotary encoder
-(volume on turn), a spare unbound button, and a joystick (cursor
-movement + left-click) — built for a Pro-Micro-footprint nRF52840 board
-(target: "V1940 Pro Micro nRF52840", flashed as `nice_nano//zmk` since it
-shares the nice!nano v2 pinout). Works over BLE (pairs as a standard HID
-keyboard/consumer-control/mouse device — no drivers needed on macOS or
-Bluetooth-capable TVs) or over a USB cable, switchable at any time.
+(volume on turn), a mode-toggle button, and a joystick — built for a
+Pro-Micro-footprint nRF52840 board (target: "V1940 Pro Micro nRF52840",
+flashed as `nice_nano//zmk` since it shares the nice!nano v2 pinout).
+Works over BLE (pairs as a standard HID keyboard/consumer-control/mouse
+device — no drivers needed on macOS or Bluetooth-capable TVs) or over a
+USB cable, switchable at any time.
+
+Two keymap layers, swapped with the mode-toggle button, change what the
+joystick does — everything else (play/pause/next/prev/mute/volume) is
+identical in both:
+
+- **Mouse mode** (default): joystick tilt moves the cursor, joystick
+  push = left-click.
+- **Arrow mode**: joystick tilt sends arrow-key presses (held while
+  tilted, released when centered), joystick push = Enter.
+
+See "Modes" below for details.
 
 ## Repo layout
 
@@ -28,10 +39,12 @@ Bluetooth-capable TVs) or over a USB cable, switchable at any time.
   pins the buttons/encoder/joystick are wired to
 - `drivers/input/analog_joystick.c` + `dts/bindings/input/zmk,analog-joystick.yaml`
   + `zephyr/module.yml` — a custom Zephyr input driver (this repo doubles
-  as its own Zephyr module) polling the joystick's two ADC axes and
-  reporting relative mouse movement once deflection passes a deadzone.
-  **Not hardware-tested** — expect to tune `deadzone`/`sensitivity` in
-  the overlay's `joystick` node once flashed to real hardware.
+  as its own Zephyr module) polling the joystick's two ADC axes. Reports
+  relative mouse movement by default once deflection passes a deadzone;
+  while the devicetree's `arrow-layer` (default `1`) is the active ZMK
+  keymap layer, it instead sends held arrow-key presses — see "Modes"
+  below. Tune `deadzone`/`sensitivity` in the overlay's `joystick` node
+  to taste.
 - `build.yaml` — tells GitHub Actions which board+shield to build; also
   has a second debug-logging build entry, see "Debugging over USB serial"
 
@@ -42,7 +55,7 @@ Bluetooth-capable TVs) or over a USB cable, switchable at any time.
 | play/pause | 16 (P0.10) | D16 |
 | next | 10 (P0.09) | D10 |
 | prev | 21 (P0.31) | A3 |
-| spare (unbound) | 3 | D3 |
+| mode-toggle | 3 | D3 |
 | encoder push (mute) | 2 | D2 |
 | joystick push (left-click) | 18 (P1.15) | A0 |
 | encoder A | 1 | D1 |
@@ -130,9 +143,10 @@ your TV without re-pairing every time.
   1), then pair from the TV's Bluetooth settings menu.
 - **Switch between them later:** just repeat the relevant combo — no
   re-pairing needed, ZMK remembers both.
-- **Clear a broken pairing:** hold `play/pause` + `next` + the spare
-  (unbound) button together to forget the currently active profile's
-  pairing, then pair again.
+- **Clear a broken pairing:** hold `play/pause` + `next` + the
+  mode-toggle button together to forget the currently active profile's
+  pairing, then pair again. (This combo works regardless of which mode
+  layer is active.)
 - **Switch USB ↔ Bluetooth:** hold `play/pause` + `next` + the joystick
   push button together to toggle output. Plug in a cable any time you
   want wired/zero-latency mode.
@@ -141,18 +155,43 @@ Reminder: these are BLE-side combos, so test them unplugged (or on a
 different host) — while a USB cable is connected, ZMK keeps using USB as
 the output regardless of which BLE profile is selected.
 
+## Modes
+
+The mode-toggle button (`&tog 1` in the keymap) persistently switches
+between two layers — press once to switch, press again to switch back;
+it stays until you toggle it again, no holding required.
+
+- **Mouse mode** (layer 0, default at boot): joystick tilt moves the
+  mouse cursor at constant speed while held past the deadzone; joystick
+  push = left-click.
+- **Arrow mode** (layer 1): joystick tilt sends a held arrow-key press
+  per axis (release when centered — so holding right continuously
+  repeats "right arrow" the way holding a real arrow key does); joystick
+  push = Enter.
+
+Everything else — play/pause, next, prev, mute, volume, and the
+Bluetooth/output combos — behaves identically in both modes; only the
+joystick's behavior changes. The switch happens inside the joystick
+driver itself (it checks whether keymap layer 1 is active), not through
+a kscan binding, since the joystick isn't a keymap position.
+
+To change which layer index the joystick treats as "arrow mode," or to
+add more layers of your own, edit `arrow-layer` in the overlay's
+`joystick` node and keep it in sync with the layer's position in
+`media_controller.keymap`.
+
 ## Controls
 
-| Input | Action |
-|---|---|
-| `play/pause` button | Play / pause |
-| `next` button | Next track |
-| `prev` button | Previous track |
-| Encoder turn | Volume up / down |
-| Encoder push | Mute |
-| Spare button | Unbound (free for a future function) |
-| Joystick tilt | Move mouse cursor (analog) |
-| Joystick push | Left click |
+| Input | Action (mouse mode) | Action (arrow mode) |
+|---|---|---|
+| `play/pause` button | Play / pause | Play / pause |
+| `next` button | Next track | Next track |
+| `prev` button | Previous track | Previous track |
+| Encoder turn | Volume up / down | Volume up / down |
+| Encoder push | Mute | Mute |
+| Mode-toggle button | Switch to arrow mode | Switch to mouse mode |
+| Joystick tilt | Move mouse cursor | Arrow-key presses |
+| Joystick push | Left click | Enter |
 
 ## First-time bring-up / testing
 

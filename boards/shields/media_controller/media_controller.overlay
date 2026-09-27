@@ -86,6 +86,7 @@
         deadzone = <200>;
         sensitivity = <80>;
         poll-interval-ms = <20>;
+        // arrow-layer defaults to 1, matching arrow_layer in the keymap.
     };
 
     joystick_listener: joystick_listener {

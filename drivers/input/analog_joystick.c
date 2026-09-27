@@ -6,9 +6,16 @@
  * relative INPUT_REL_X / INPUT_REL_Y events - i.e. trackpoint-style
  * continuous cursor movement while the stick is held off-center.
  *
- * First draft: not hardware-tested. `deadzone` and `sensitivity` in the
- * devicetree node will very likely need tuning once flashed to real
- * hardware.
+ * The center position isn't fixed after boot: whenever a given axis is
+ * within its own deadzone (i.e. reporting no movement), its center
+ * slowly drifts toward the current reading. This absorbs small
+ * persistent calibration offsets or thermal drift (common with
+ * magnetic/TMR joystick modules) that would otherwise cause a constant
+ * slow cursor creep in one direction. It never affects a genuine held
+ * deflection, since that branch only runs below the deadzone threshold.
+ *
+ * `deadzone` and `sensitivity` in the devicetree node will likely still
+ * need tuning per joystick module.
  */
 
 #define DT_DRV_COMPAT zmk_analog_joystick
@@ -80,11 +87,24 @@ static void analog_joystick_work_handler(struct k_work *work) {
     if (dx > cfg->deadzone || dx < -cfg->deadzone) {
         move_x = dx / (int32_t)cfg->sensitivity;
         report_x = move_x != 0;
+    } else {
+        /*
+         * Within the deadzone: slowly drift the calibrated center toward
+         * the current reading. Corrects small persistent offsets (an
+         * imperfect boot-time calibration, thermal drift, mechanical
+         * creep) that would otherwise cause a slow constant drift in one
+         * direction forever - without ever affecting a genuine held
+         * deflection, since this branch only runs while already below
+         * the deadzone threshold.
+         */
+        data->center_x += (raw_x - data->center_x) / 32;
     }
 
     if (dy > cfg->deadzone || dy < -cfg->deadzone) {
         move_y = dy / (int32_t)cfg->sensitivity;
         report_y = move_y != 0;
+    } else {
+        data->center_y += (raw_y - data->center_y) / 32;
     }
 
     /*

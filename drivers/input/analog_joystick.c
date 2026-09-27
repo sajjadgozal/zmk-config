@@ -72,26 +72,41 @@ static void analog_joystick_work_handler(struct k_work *work) {
 
     LOG_DBG("raw_x=%d raw_y=%d dx=%d dy=%d", raw_x, raw_y, dx, dy);
 
-    bool moved = false;
+    int32_t move_x = 0;
+    int32_t move_y = 0;
+    bool report_x = false;
+    bool report_y = false;
 
     if (dx > cfg->deadzone || dx < -cfg->deadzone) {
-        int32_t move = dx / (int32_t)cfg->sensitivity;
-        if (move != 0) {
-            input_report_rel(data->dev, INPUT_REL_X, move, false, K_NO_WAIT);
-            moved = true;
-        }
+        move_x = dx / (int32_t)cfg->sensitivity;
+        report_x = move_x != 0;
     }
 
     if (dy > cfg->deadzone || dy < -cfg->deadzone) {
-        int32_t move = dy / (int32_t)cfg->sensitivity;
-        if (move != 0) {
-            input_report_rel(data->dev, INPUT_REL_Y, move, true, K_NO_WAIT);
-            moved = true;
-        }
+        move_y = dy / (int32_t)cfg->sensitivity;
+        report_y = move_y != 0;
     }
 
-    if (!moved) {
-        /* Ensure a sync event is still sent so listeners don't stall. */
+    /*
+     * Exactly one call per cycle must carry sync=true - the mouse HID
+     * listener accumulates dx/dy across calls and only flushes an HID
+     * report on the synced call. Previously X was always reported with
+     * sync=false, and the fallback sync-only event only fired when
+     * *nothing* moved - so an X-only movement (Y within its deadzone)
+     * queued a delta that never got flushed. Report Y last (if it's
+     * firing) since it's naturally the synced call already; otherwise
+     * make X the synced call; otherwise send a zero-delta synced event
+     * so listeners don't stall.
+     */
+    if (report_x) {
+        input_report_rel(data->dev, INPUT_REL_X, move_x, !report_y, K_NO_WAIT);
+    }
+
+    if (report_y) {
+        input_report_rel(data->dev, INPUT_REL_Y, move_y, true, K_NO_WAIT);
+    }
+
+    if (!report_x && !report_y) {
         input_report_rel(data->dev, INPUT_REL_X, 0, true, K_NO_WAIT);
     }
 

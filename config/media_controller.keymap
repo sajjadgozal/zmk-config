@@ -2,7 +2,7 @@
  * Media Controller keymap
  *
  * Layout (physical positions 0-5):
- *   0: play/pause   1: back   2: home   3: mode-toggle button   4: encoder push (mute)   5: joystick push
+ *   0: play/pause   1: home   2: back   3: mode-toggle button   4: encoder push (mute)   5: joystick push
  *   encoder turn: volume up / down (same in both layers)
  *
  * back = Escape (Android maps a keyboard's Escape key to the system
@@ -13,10 +13,19 @@
  * CONFIG_ZMK_HID_CONSUMER_REPORT_USAGES_BASIC in media_controller.conf)
  * unlike AC Home/AC Back (0x223/0x224), which need Full and would
  * reintroduce the exact Android compatibility issue Basic mode fixed.
+ * NOTE: reported not to actually trigger Home on this TV - see README.
+ *
+ * joystick push in mouse mode sends BOTH a left-click and an Enter
+ * keypress (click_or_enter macro below): some Android BLE hosts don't
+ * register mouse-button clicks over BLE HID at all (movement works,
+ * click doesn't - a known Android limitation, not fixable from here),
+ * so Enter rides along as a keyboard-page fallback that's confirmed to
+ * work on this TV, while still behaving as a normal left-click
+ * elsewhere (e.g. macOS).
  *
  * Two layers, toggled by the mode-toggle button (was spare/unbound):
  *   Layer 0 (mouse mode, default): joystick tilt moves the mouse
- *     cursor, joystick push = left-click.
+ *     cursor, joystick push = left-click + Enter (see above).
  *   Layer 1 (arrow mode): joystick tilt sends arrow-key presses
  *     (held while tilted, released when centered), joystick push =
  *     Enter - a natural pairing for keyboard-style menu navigation.
@@ -27,15 +36,17 @@
  * a kscan position, so it has no keymap binding of its own.
  *
  * Bluetooth profile switching (no dedicated buttons needed, works from
- * either mode layer):
+ * either mode layer) - these key-positions are unchanged by the
+ * home/back swap above, since combos trigger on physical positions
+ * regardless of which function is currently bound there:
  *   hold home + back together          -> select profile 0 (use for macOS)
- *   hold home + play together          -> select profile 1 (use for TV)
- *   hold play + back + mode-toggle      -> clear the currently active profile's pairing
- *   hold play + back + joy-push         -> toggle output between USB and BLE
+ *   hold back + play together          -> select profile 1 (use for TV)
+ *   hold play + home + mode-toggle      -> clear the currently active profile's pairing
+ *   hold play + home + joy-push         -> toggle output between USB and BLE
  *
  * Pair to macOS: put device in profile 0 (home+back combo), then pair from
  * System Settings > Bluetooth as usual.
- * Pair to a TV: switch to profile 1 (home+play combo) and pair from the
+ * Pair to a TV: switch to profile 1 (back+play combo) and pair from the
  * TV's Bluetooth settings. Repeat the combo any time to swap which device
  * receives input - ZMK remembers both pairings.
  * Plug in a USB cable and use the output-toggle combo to switch to wired
@@ -49,6 +60,12 @@
 #include <dt-bindings/zmk/mouse.h>
 
 / {
+    click_or_enter: click_or_enter {
+        compatible = "zmk,behavior-macro";
+        #binding-cells = <0>;
+        bindings = <&mkp LCLK>, <&kp RET>;
+    };
+
     combos {
         compatible = "zmk,combos";
 
@@ -82,7 +99,7 @@
 
         mouse_layer {
             bindings = <
-                &kp C_PP   &kp ESC   &kp C_MEDIA_HOME   &tog 1   &kp C_MUTE   &mkp LCLK
+                &kp C_PP   &kp C_MEDIA_HOME   &kp ESC   &tog 1   &kp C_MUTE   &click_or_enter
             >;
 
             sensor-bindings = <&inc_dec_kp C_VOL_DN C_VOL_UP>;
@@ -90,7 +107,7 @@
 
         arrow_layer {
             bindings = <
-                &kp C_PP   &kp ESC   &kp C_MEDIA_HOME   &tog 1   &kp C_MUTE   &kp RET
+                &kp C_PP   &kp C_MEDIA_HOME   &kp ESC   &tog 1   &kp C_MUTE   &kp RET
             >;
 
             sensor-bindings = <&inc_dec_kp C_VOL_DN C_VOL_UP>;

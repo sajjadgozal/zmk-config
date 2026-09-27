@@ -53,8 +53,8 @@ See "Modes" below for details.
 | Signal | pro_micro index | Silkscreen label |
 |---|---|---|
 | play/pause | 16 (P0.10) | D16 |
-| back (Escape) | 10 (P0.09) | D10 |
-| home (Media Select Home) | 21 (P0.31) | A3 |
+| home (Media Select Home) | 10 (P0.09) | D10 |
+| back (Escape) | 21 (P0.31) | A3 |
 | mode-toggle | 3 | D3 |
 | encoder push (mute) | 2 | D2 |
 | joystick push (left-click) | 18 (P1.15) | A0 |
@@ -139,15 +139,15 @@ your TV without re-pairing every time.
 - **Pair to macOS:** hold `home` + `back` together (selects profile 0),
   then on the Mac go to System Settings → Bluetooth and pair with
   "Media Remote".
-- **Pair to a TV:** hold `home` + `play/pause` together (selects profile
+- **Pair to a TV:** hold `back` + `play/pause` together (selects profile
   1), then pair from the TV's Bluetooth settings menu.
 - **Switch between them later:** just repeat the relevant combo — no
   re-pairing needed, ZMK remembers both.
-- **Clear a broken pairing:** hold `play/pause` + `back` + the
+- **Clear a broken pairing:** hold `play/pause` + `home` + the
   mode-toggle button together to forget the currently active profile's
   pairing, then pair again. (This combo works regardless of which mode
   layer is active.)
-- **Switch USB ↔ Bluetooth:** hold `play/pause` + `back` + the joystick
+- **Switch USB ↔ Bluetooth:** hold `play/pause` + `home` + the joystick
   push button together to toggle output. Plug in a cable any time you
   want wired/zero-latency mode.
 
@@ -163,11 +163,36 @@ it stays until you toggle it again, no holding required.
 
 - **Mouse mode** (layer 0, default at boot): joystick tilt moves the
   mouse cursor at constant speed while held past the deadzone; joystick
-  push = left-click.
+  push = left-click **and** Enter together (`click_or_enter` macro) — see
+  "Known Android limitations" below for why.
 - **Arrow mode** (layer 1): joystick tilt sends a held arrow-key press
   per axis (release when centered — so holding right continuously
   repeats "right arrow" the way holding a real arrow key does); joystick
   push = Enter.
+
+## Known Android limitations
+
+Testing on an Android TV turned up two host-side quirks that aren't
+fixable purely from this firmware:
+
+- **Mouse-button clicks over BLE HID don't register at all**, while
+  relative movement works fine — a known, widely-reported Android
+  limitation, not specific to this device. Worked around by having
+  joystick push send an Enter keypress alongside the click (see
+  `click_or_enter` in the keymap) — Enter is a keyboard-page key, which
+  *does* work.
+- **Consumer "Media Select Home" (0x9A) doesn't trigger Home** on this
+  TV, despite being purpose-built for exactly this. The usage Android's
+  own remotes actually use for Home is "AC Home" (0x223) — but that
+  requires switching `CONFIG_ZMK_HID_CONSUMER_REPORT_USAGES` from
+  `_BASIC` to `_FULL`, which is what broke play/pause/mute/volume/back
+  in the first place (see the Basic-usage fix earlier in this file's
+  history). Whether Full mode with *only* AC Home added back-breaks
+  everything else again hasn't been tested — if you want a working Home
+  button, that's the next experiment: temporarily switch to `_FULL`,
+  rebind `home` to `C_AC_HOME`, and see whether the other consumer keys
+  survive. If they don't, there's currently no known working Home
+  button over generic BLE HID for this TV.
 
 Everything else — play/pause, back, home, mute, volume, and the
 Bluetooth/output combos — behaves identically in both modes; only the
@@ -185,13 +210,13 @@ add more layers of your own, edit `arrow-layer` in the overlay's
 | Input | Action (mouse mode) | Action (arrow mode) |
 |---|---|---|
 | `play/pause` button | Play / pause | Play / pause |
+| `home` button | Home (unreliable, see below) | Home (unreliable, see below) |
 | `back` button | Back (Escape) | Back (Escape) |
-| `home` button | Home | Home |
 | Encoder turn | Volume up / down | Volume up / down |
 | Encoder push | Mute | Mute |
 | Mode-toggle button | Switch to arrow mode | Switch to mouse mode |
 | Joystick tilt | Move mouse cursor | Arrow-key presses |
-| Joystick push | Left click | Enter |
+| Joystick push | Left click + Enter | Enter |
 
 ## First-time bring-up / testing
 

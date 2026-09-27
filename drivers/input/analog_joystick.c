@@ -41,7 +41,20 @@ struct analog_joystick_data {
     struct k_work_delayable work;
     int32_t center_x;
     int32_t center_y;
+    bool calibrated;
 };
+
+/*
+ * How long after boot to wait before calibrating the resting center.
+ * Deliberately generous: a short window (e.g. 100ms) risks firing while
+ * the board is still being handled right after being plugged in or
+ * flashed, capturing a skewed "center" that's actually the stick being
+ * touched/held rather than at rest - which then gets permanently locked
+ * in, since it lands far outside the deadzone and the runtime
+ * auto-recentering (see below) only nudges the center when a reading is
+ * already *within* the deadzone.
+ */
+#define CALIBRATION_DELAY_MS 2000
 
 static int32_t analog_joystick_read(const struct adc_dt_spec *spec) {
     int16_t buf = 0;
@@ -65,11 +78,36 @@ static int32_t analog_joystick_read(const struct adc_dt_spec *spec) {
     return buf;
 }
 
+static void analog_joystick_calibrate(struct analog_joystick_data *data,
+                                       const struct analog_joystick_config *cfg) {
+    int32_t sum_x = 0;
+    int32_t sum_y = 0;
+    const int samples = 8;
+
+    for (int i = 0; i < samples; i++) {
+        sum_x += analog_joystick_read(&cfg->x_channel);
+        sum_y += analog_joystick_read(&cfg->y_channel);
+        k_msleep(5);
+    }
+
+    data->center_x = sum_x / samples;
+    data->center_y = sum_y / samples;
+    data->calibrated = true;
+
+    LOG_INF("Calibrated center: x=%d y=%d", data->center_x, data->center_y);
+}
+
 static void analog_joystick_work_handler(struct k_work *work) {
     struct k_work_delayable *dwork = k_work_delayable_from_work(work);
     struct analog_joystick_data *data =
         CONTAINER_OF(dwork, struct analog_joystick_data, work);
     const struct analog_joystick_config *cfg = data->dev->config;
+
+    if (!data->calibrated) {
+        analog_joystick_calibrate(data, cfg);
+        k_work_schedule(&data->work, K_MSEC(cfg->poll_interval_ms));
+        return;
+    }
 
     int32_t raw_x = analog_joystick_read(&cfg->x_channel);
     int32_t raw_y = analog_joystick_read(&cfg->y_channel);
@@ -155,33 +193,17 @@ static int analog_joystick_init(const struct device *dev) {
     }
 
     data->dev = dev;
+    data->calibrated = false;
 
     /*
-     * Let the sensor's analog output settle before treating it as the
-     * resting center - important for magnetic (TMR/Hall) joystick
-     * modules, whose sensing element can still be stabilizing right at
-     * power-on, unlike a plain potentiometer. Then average several
-     * samples rather than trusting a single (possibly noisy) read.
+     * Calibration happens on the work queue's first run (see
+     * analog_joystick_work_handler), not here - this avoids a multi-
+     * second blocking sleep in device init, which would delay every
+     * other POST_KERNEL driver that initializes after this one
+     * (including the BLE stack).
      */
-    k_msleep(100);
-
-    int32_t sum_x = 0;
-    int32_t sum_y = 0;
-    const int samples = 8;
-
-    for (int i = 0; i < samples; i++) {
-        sum_x += analog_joystick_read(&cfg->x_channel);
-        sum_y += analog_joystick_read(&cfg->y_channel);
-        k_msleep(5);
-    }
-
-    data->center_x = sum_x / samples;
-    data->center_y = sum_y / samples;
-
-    LOG_INF("Calibrated center: x=%d y=%d", data->center_x, data->center_y);
-
     k_work_init_delayable(&data->work, analog_joystick_work_handler);
-    k_work_schedule(&data->work, K_MSEC(cfg->poll_interval_ms));
+    k_work_schedule(&data->work, K_MSEC(CALIBRATION_DELAY_MS));
 
     return 0;
 }

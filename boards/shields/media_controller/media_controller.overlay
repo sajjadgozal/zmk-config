@@ -3,49 +3,40 @@
  *
  * 4 direct buttons (play/pause, next, prev, a spare unbound button), 1
  * rotary encoder (volume on turn; its push button is bound to mute), and
- * a joystick (click = left-click; X/Y tilt = coarse cursor movement).
+ * a joystick (click = left-click; X/Y tilt = smooth analog cursor move).
  *
  * Pin numbers below use the standard nice!nano "pro_micro" connector
  * index (defined in ZMK's arduino_pro_micro_pins.dtsi), matching the
  * board as actually soldered:
  *
  *   Signal              pro_micro index   Silkscreen label
- *   play/pause          20                A2
- *   next                19                A1
- *   prev                21                A3
+ *   play/pause          16 (P0.10)        D16
+ *   next                10 (P0.09)        D10
+ *   prev                21 (P0.31)        A3
  *   spare (unbound)     3                 D3
  *   encoder push (mute) 2                 D2
  *   joystick push       18 (P1.15)        A0
  *   encoder A           1                 D1
  *   encoder B           0                 D0
- *   joystick X          10 (P0.09)        D10
- *   joystick Y          16 (P0.10)        D16
+ *   joystick X (ADC)    19 (AIN0/P0.02)   A1
+ *   joystick Y (ADC)    20 (AIN5/P0.29)   A2
  *
- * IMPORTANT - joystick X/Y are NOT true analog readings here. D10/D16
- * are P0.09/P0.10, the nRF52840's dedicated NFC1/NFC2 antenna pins -
- * confirmed against Nordic's official datasheet, these are not wired to
- * the chip's SAADC at all, in any devicetree/Kconfig configuration
- * (there is no "AIN5"/"AIN6" on these physical pins - that's a fixed
- * silicon fact, not a software setting). Only the pins silkscreened
- * A1/A2/A3 are true SAADC-capable pins on this board, and those are
- * occupied by the play/pause/next/prev buttons as soldered.
- *
- * So instead, this reads D10/D16 as plain digital GPIO: each pot's
- * wiper voltage is compared against the pin's fixed ~half-VCC digital
- * threshold, giving one bit per axis (tilted-this-way vs tilted-that-
- * way), which drives constant-speed cursor movement while held. This
- * needs CONFIG_NFCT_PINS_AS_GPIOS=y (see media_controller.conf) since
- * these pins default to NFC-antenna mode and aren't usable as GPIO at
- * all otherwise. Expect this to feel binary/jittery rather than a smooth
- * analog stick, and to chatter right around the joystick's mechanical
- * center if that happens to sit close to the pin's digital threshold.
- * If that's not good enough in practice, the real fix is re-wiring
- * joystick X/Y onto the A1/A2 pins instead (freeing them by moving the
- * 3 buttons onto ordinary digital pins like D4/D5/D6) - the previous
- * revision of this overlay did exactly that.
+ * This is the "real fix" from earlier revisions: joystick X/Y now sit on
+ * the board's only 2 (of 3) true SAADC-capable pins - A1/A2 (P0.02/P0.29
+ * = AIN0/AIN5, confirmed against Nordic's official nRF52840 datasheet) -
+ * so the joystick gets genuine analog reading via the custom
+ * zmk,analog-joystick driver (drivers/input/analog_joystick.c) instead
+ * of the earlier digital-threshold fallback. play/pause and next moved
+ * onto D10/D16 (P0.09/P0.10, the chip's NFC1/NFC2 antenna pins) to free
+ * up A1/A2 - that's fine for plain digital buttons (unlike for analog
+ * signals, GPIO doesn't care that these pins double as NFC pins), it
+ * just needs CONFIG_NFCT_PINS_AS_GPIOS=y (see media_controller.conf),
+ * which is already set.
  */
 
 #include <dt-bindings/zmk/matrix_transform.h>
+#include <zephyr/dt-bindings/adc/adc.h>
+#include <zephyr/dt-bindings/adc/nrf-saadc.h>
 
 / {
     chosen {
@@ -57,26 +48,22 @@
         compatible = "zmk,kscan-gpio-direct";
         wakeup-source;
         input-gpios
-            = <&pro_micro 20 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>  // play/pause
-            , <&pro_micro 19 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>  // next
+            = <&pro_micro 16 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>  // play/pause
+            , <&pro_micro 10 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>  // next
             , <&pro_micro 21 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>  // prev
             , <&pro_micro 3 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>   // spare (unbound)
             , <&pro_micro 2 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>   // encoder push (mute)
             , <&pro_micro 18 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>  // joystick push (left-click)
-            , <&pro_micro 10 (GPIO_ACTIVE_HIGH)>                // joystick X high half -> tilt right
-            , <&pro_micro 10 (GPIO_ACTIVE_LOW)>                 // joystick X low half  -> tilt left
-            , <&pro_micro 16 (GPIO_ACTIVE_HIGH)>                // joystick Y high half -> tilt down
-            , <&pro_micro 16 (GPIO_ACTIVE_LOW)>                 // joystick Y low half  -> tilt up
             ;
     };
 
     default_transform: keymap_transform0 {
         compatible = "zmk,matrix-transform";
-        columns = <10>;
+        columns = <6>;
         rows = <1>;
-        //  play    next    prev    spare   enc-push  joy-push  x-hi    x-lo    y-hi    y-lo
+        //  play    next    prev    spare   enc-push  joy-push
         map = <
-            RC(0,0) RC(0,1) RC(0,2) RC(0,3) RC(0,4)   RC(0,5)   RC(0,6) RC(0,7) RC(0,8) RC(0,9)
+            RC(0,0) RC(0,1) RC(0,2) RC(0,3) RC(0,4)   RC(0,5)
         >;
     };
 
@@ -91,5 +78,41 @@
         compatible = "zmk,keymap-sensors";
         sensors = <&left_encoder>;
         triggers-per-rotation = <20>;
+    };
+
+    joystick: joystick {
+        compatible = "zmk,analog-joystick";
+        io-channels = <&adc 0>, <&adc 1>;
+        deadzone = <150>;
+        sensitivity = <24>;
+        poll-interval-ms = <20>;
+    };
+
+    joystick_listener: joystick_listener {
+        compatible = "zmk,input-listener";
+        device = <&joystick>;
+    };
+};
+
+&adc {
+    #address-cells = <1>;
+    #size-cells = <0>;
+
+    channel@0 {
+        reg = <0>;
+        zephyr,gain = "ADC_GAIN_1_6";
+        zephyr,reference = "ADC_REF_INTERNAL";
+        zephyr,acquisition-time = <ADC_ACQ_TIME(ADC_ACQ_TIME_MICROSECONDS, 40)>;
+        zephyr,input-positive = <NRF_SAADC_AIN0>; // joystick X - pro_micro pin 19, silkscreen "A1"
+        zephyr,resolution = <12>;
+    };
+
+    channel@1 {
+        reg = <1>;
+        zephyr,gain = "ADC_GAIN_1_6";
+        zephyr,reference = "ADC_REF_INTERNAL";
+        zephyr,acquisition-time = <ADC_ACQ_TIME(ADC_ACQ_TIME_MICROSECONDS, 40)>;
+        zephyr,input-positive = <NRF_SAADC_AIN5>; // joystick Y - pro_micro pin 20, silkscreen "A2"
+        zephyr,resolution = <12>;
     };
 };

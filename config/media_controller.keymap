@@ -1,20 +1,18 @@
 /*
  * Media Controller keymap
  *
- * Layout (physical positions 0-9):
- *   0: play/pause   1: next   2: prev   3: mute button (unbound)   4: encoder push (mute)   5: joystick push (left-click)
- *   6: joystick tilt right   7: joystick tilt left   8: joystick tilt down   9: joystick tilt up
+ * Layout (physical positions 0-5):
+ *   0: play/pause   1: next   2: prev   3: spare button (unbound)   4: encoder push (mute)   5: joystick push (left-click)
  *   encoder turn: volume up / down
- *
- * Joystick X/Y are wired to non-ADC pins (see overlay comment) and read
- * as plain digital high/low, so positions 6-9 behave like a coarse
- * 4-direction digital stick (constant-speed cursor move while tilted
- * past center), not a smooth analog stick.
+ *   joystick tilt: mouse cursor movement (true analog - see overlay's
+ *   zmk,analog-joystick node and drivers/input/analog_joystick.c;
+ *   not bound here since it's a separate input-listener pipeline, not
+ *   a kscan position)
  *
  * Bluetooth profile switching (no dedicated buttons needed):
  *   hold prev + next together          -> select profile 0 (use for macOS)
  *   hold prev + play together          -> select profile 1 (use for TV)
- *   hold play + next + mute-btn        -> clear the currently active profile's pairing
+ *   hold play + next + spare-btn       -> clear the currently active profile's pairing
  *   hold play + next + joy-push        -> toggle output between USB and BLE
  *
  * Pair to macOS: put device in profile 0 (prev+next combo), then pair from
@@ -67,7 +65,6 @@
         default_layer {
             bindings = <
                 &kp C_PP   &kp C_NEXT   &kp C_PREV   &none   &kp C_MUTE   &mkp LCLK
-                &mmv MOVE_RIGHT   &mmv MOVE_LEFT   &mmv MOVE_DOWN   &mmv MOVE_UP
             >;
 
             sensor-bindings = <&inc_dec_kp C_VOL_DN C_VOL_UP>;

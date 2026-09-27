@@ -28,11 +28,10 @@ Bluetooth-capable TVs) or over a USB cable, switchable at any time.
   pins the buttons/encoder/joystick are wired to
 - `drivers/input/analog_joystick.c` + `dts/bindings/input/zmk,analog-joystick.yaml`
   + `zephyr/module.yml` — a custom Zephyr input driver (this repo doubles
-  as its own Zephyr module) for a *true analog* joystick over ADC.
-  **Currently unused/dormant** — the joystick as actually soldered is on
-  non-ADC pins (see below), so the devicetree doesn't instantiate this
-  driver right now. Kept in the repo for if the joystick is ever
-  rewired onto true analog pins.
+  as its own Zephyr module) polling the joystick's two ADC axes and
+  reporting relative mouse movement once deflection passes a deadzone.
+  **Not hardware-tested** — expect to tune `deadzone`/`sensitivity` in
+  the overlay's `joystick` node once flashed to real hardware.
 - `build.yaml` — tells GitHub Actions which board+shield to build; also
   has a second debug-logging build entry, see "Debugging over USB serial"
 
@@ -40,36 +39,28 @@ Bluetooth-capable TVs) or over a USB cable, switchable at any time.
 
 | Signal | pro_micro index | Silkscreen label |
 |---|---|---|
-| play/pause | 20 | A2 |
-| next | 19 | A1 |
-| prev | 21 | A3 |
+| play/pause | 16 (P0.10) | D16 |
+| next | 10 (P0.09) | D10 |
+| prev | 21 (P0.31) | A3 |
 | spare (unbound) | 3 | D3 |
 | encoder push (mute) | 2 | D2 |
 | joystick push (left-click) | 18 (P1.15) | A0 |
 | encoder A | 1 | D1 |
 | encoder B | 0 | D0 |
-| joystick X | 10 (P0.09) | D10 |
-| joystick Y | 16 (P0.10) | D16 |
+| joystick X (ADC) | 19 (AIN0/P0.02) | A1 |
+| joystick Y (ADC) | 20 (AIN5/P0.29) | A2 |
 
-⚠️ **Joystick X/Y are not true analog readings.** D10/D16 are P0.09/P0.10
-— the nRF52840's dedicated NFC1/NFC2 antenna pins, confirmed against
-Nordic's official datasheet as not wired to the chip's SAADC at all, in
-any devicetree/Kconfig configuration. That's a fixed silicon fact, not a
-software setting. The only 3 pins on this board that *are* true
-SAADC-capable pins are the ones silkscreened `A1`/`A2`/`A3` — and those
-are occupied by the play/pause/next/prev buttons as soldered.
-
-Given the board is already built, the joystick is instead read as plain
-digital GPIO: each pot's wiper voltage is compared against the pin's
-fixed ~half-VCC digital threshold, giving one bit per axis (tilted-this-
-way vs tilted-that-way), driving constant-speed cursor movement while
-held via `&mmv`. Expect this to feel binary/jittery rather than a smooth
-analog stick, and to chatter right around the joystick's mechanical
-center if that happens to sit close to the pin's digital threshold. If
-that's not good enough in practice, the real fix is re-wiring joystick
-X/Y onto the A1/A2 pins instead (freeing them by moving the 3 buttons
-onto ordinary digital pins) and re-enabling the analog joystick driver -
-an earlier revision of this repo did exactly that (see git history).
+Joystick X/Y are true analog readings here — A1/A2 (P0.02/P0.29 =
+AIN0/AIN5) are 2 of the board's only 3 SAADC-capable pins (confirmed
+against Nordic's official nRF52840 datasheet). play/pause and next moved
+onto D10/D16 (P0.09/P0.10, the chip's NFC1/NFC2 antenna pins) to free up
+A1/A2 for the joystick — that's electrically fine for plain digital
+buttons (`CONFIG_NFCT_PINS_AS_GPIOS=y` makes them usable as GPIO at all).
+This is the fix for an earlier revision that had the joystick on the NFC
+pins instead — analog reading is physically impossible there, so it had
+to fall back to a crude digital-threshold approximation. Real analog
+joystick movement needs the fix in this direction (analog-capable pins
+for the joystick), not the other way around.
 
 ## Building the firmware
 
@@ -160,7 +151,7 @@ the output regardless of which BLE profile is selected.
 | Encoder turn | Volume up / down |
 | Encoder push | Mute |
 | Spare button | Unbound (free for a future function) |
-| Joystick tilt | Move mouse cursor (coarse digital, see Pin layout) |
+| Joystick tilt | Move mouse cursor (analog) |
 | Joystick push | Left click |
 
 ## First-time bring-up / testing
@@ -182,12 +173,12 @@ below is independently checkable:
    it — volume should move in the OS; push should mute. If it moves the
    wrong direction, swap the A/B wires (or swap the two args in
    `sensor-bindings` in the keymap).
-4. **Joystick last**, since it's the least tested part of this build and
-   uses the digital-threshold fallback described in Pin layout above.
-   Wire X/Y to D10/D16 and the click button to A0. On macOS, watch the
-   cursor: tilting each direction should nudge it at constant speed;
-   expect some jitter/chatter near center rather than a dead-still rest
-   position, since this isn't true analog.
+4. **Joystick last**, since it's the least tested part of this build.
+   Wire X/Y to A1/A2 and the click button to A0. On macOS, watch the
+   cursor: it should sit still at rest and move smoothly when tilted. If
+   it drifts at rest, increase `deadzone` in the overlay's `joystick`
+   node; if too slow/fast, adjust `sensitivity` (lower = faster). Each
+   tuning change needs a re-flash.
 5. **Bluetooth profile switching.** With everything wired, test the
    pairing combos (see Pairing above) *unplugged* — pair to macOS on
    profile 0, then try the TV/profile 1 combo and confirm it visibly
@@ -199,3 +190,10 @@ below is independently checkable:
 If a stage fails, isolate it: use the debug-log build (see above) to
 check whether firmware sees the input at all before assuming it's a
 wiring problem.
+
+## Tuning the joystick
+
+Once flashed, if the cursor drifts at rest, increase `deadzone` in the
+`joystick` node in `media_controller.overlay`. If movement feels too
+slow/fast, decrease/increase `sensitivity` (it's a divisor — lower means
+faster movement). Re-push to trigger a CI rebuild after each change.

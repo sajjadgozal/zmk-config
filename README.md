@@ -1,8 +1,8 @@
 # media_controller
 
-A ZMK-based media remote / mini pointing device: 4 buttons (play-pause /
-next / prev / a dedicated mute), a rotary encoder (volume on turn; its
-own push button is currently unbound), and an analog joystick (cursor
+A ZMK-based media remote / mini pointing device: 3 buttons (play-pause /
+next / prev), an encoder push button bound to mute, a rotary encoder
+(volume on turn), a spare unbound button, and a joystick (cursor
 movement + left-click) — built for a Pro-Micro-footprint nRF52840 board
 (target: "V1940 Pro Micro nRF52840", flashed as `nice_nano//zmk` since it
 shares the nice!nano v2 pinout). Works over BLE (pairs as a standard HID
@@ -24,54 +24,59 @@ Bluetooth-capable TVs) or over a USB cable, switchable at any time.
 - `config/media_controller.keymap` — key bindings + Bluetooth-profile /
   output-toggle combos
 - `config/media_controller.conf` — BLE/USB/pointing/power Kconfig options
-- `boards/shields/media_controller/` — the custom "shield": which GPIO/ADC
+- `boards/shields/media_controller/` — the custom "shield": which GPIO
   pins the buttons/encoder/joystick are wired to
 - `drivers/input/analog_joystick.c` + `dts/bindings/input/zmk,analog-joystick.yaml`
   + `zephyr/module.yml` — a custom Zephyr input driver (this repo doubles
-  as its own Zephyr module) that polls the joystick's two ADC axes and
-  reports relative mouse movement once deflection passes a deadzone.
-  **Not hardware-tested** — expect to tune `deadzone` and `sensitivity` in
-  the overlay once it's flashed to real hardware.
-- `build.yaml` — tells GitHub Actions which board+shield to build
+  as its own Zephyr module) for a *true analog* joystick over ADC.
+  **Currently unused/dormant** — the joystick as actually soldered is on
+  non-ADC pins (see below), so the devicetree doesn't instantiate this
+  driver right now. Kept in the repo for if the joystick is ever
+  rewired onto true analog pins.
+- `build.yaml` — tells GitHub Actions which board+shield to build; also
+  has a second debug-logging build entry, see "Debugging over USB serial"
 
-## Pin layout
+## Pin layout (as soldered)
 
-| Signal | pro_micro index | Silkscreen label (nice!nano-pinout boards) |
+| Signal | pro_micro index | Silkscreen label |
 |---|---|---|
-| play/pause | 4 | D4 |
-| next | 5 | D5 |
-| prev | 6 | D6 |
-| mute | 3 | D3 |
-| encoder push (unbound) | 2 | D2 |
+| play/pause | 20 | A2 |
+| next | 19 | A1 |
+| prev | 21 | A3 |
+| spare (unbound) | 3 | D3 |
+| encoder push (mute) | 2 | D2 |
 | joystick push (left-click) | 18 (P1.15) | A0 |
 | encoder A | 1 | D1 |
 | encoder B | 0 | D0 |
-| joystick X | 19 (AIN0) | A1 |
-| joystick Y | 20 (AIN5) | A2 |
+| joystick X | 10 (P0.09) | D10 |
+| joystick Y | 16 (P0.10) | D16 |
 
-⚠️ **Verify this against your V1940's actual silkscreen before soldering**
-— this table assumes it's pin-compatible with nice!nano (true for most
-"Pro Micro nRF52840" clones, but not guaranteed). Two things worth
-knowing if you need to change pins:
+⚠️ **Joystick X/Y are not true analog readings.** D10/D16 are P0.09/P0.10
+— the nRF52840's dedicated NFC1/NFC2 antenna pins, confirmed against
+Nordic's official datasheet as not wired to the chip's SAADC at all, in
+any devicetree/Kconfig configuration. That's a fixed silicon fact, not a
+software setting. The only 3 pins on this board that *are* true
+SAADC-capable pins are the ones silkscreened `A1`/`A2`/`A3` — and those
+are occupied by the play/pause/next/prev buttons as soldered.
 
-- Buttons/encoder can go on any free digital GPIO.
-- The joystick's X/Y wires **must** land on ADC-capable pins. On this
-  chip (confirmed against Nordic's official nRF52840 datasheet), only 3
-  header pins qualify — the ones silkscreened `A1`/`A2`/`A3` (SoC pins
-  P0.02/P0.29/P0.31 = AIN0/AIN5/AIN7). Every other pin, including the one
-  labeled `A0` (routed to P1.15) and the pins labeled `D10`/`D16`
-  (P0.09/P0.10, the chip's dedicated NFC antenna pins), is *not*
-  SAADC-capable — that's fixed in silicon, no devicetree/Kconfig setting
-  changes it. Don't route the joystick's analog signals to those
-  regardless of what a label suggests.
+Given the board is already built, the joystick is instead read as plain
+digital GPIO: each pot's wiper voltage is compared against the pin's
+fixed ~half-VCC digital threshold, giving one bit per axis (tilted-this-
+way vs tilted-that-way), driving constant-speed cursor movement while
+held via `&mmv`. Expect this to feel binary/jittery rather than a smooth
+analog stick, and to chatter right around the joystick's mechanical
+center if that happens to sit close to the pin's digital threshold. If
+that's not good enough in practice, the real fix is re-wiring joystick
+X/Y onto the A1/A2 pins instead (freeing them by moving the 3 buttons
+onto ordinary digital pins) and re-enabling the analog joystick driver -
+an earlier revision of this repo did exactly that (see git history).
 
 ## Building the firmware
 
 Push this repo to GitHub and the included Action
 (`.github/workflows/build.yml`) builds a `.uf2` firmware file on every push
 — check the Actions tab, download the `firmware` artifact from a successful
-run. This is also how you'll catch any compile errors in the custom
-joystick driver, since it hasn't been build-tested locally.
+run.
 
 To build locally instead, follow ZMK's
 ["Build and Flash" toolchain setup](https://zmk.dev/docs/development/setup)
@@ -110,19 +115,12 @@ enabled for sensors (covers the EC11 encoder driver).
    screen /dev/tty.usbmodem<whatever showed up> 115200
    ```
    (`Ctrl-A` then `K` to exit `screen` when done.)
-4. Turn the encoder and watch the output. You're looking for lines from
-   the `EC11` log module (e.g. `A: ... B: ... resolution ...` at boot,
-   then `Delta: ...` as you turn it):
-   - **Nothing at all appears when turning it** → the driver isn't
-     seeing GPIO transitions - almost certainly a wiring issue (see the
-     multimeter test from before) rather than firmware.
-   - **`Delta:` lines appear but volume still doesn't change** → the
-     encoder and driver are fine; the problem is downstream (HID
-     report, BLE/USB connection, or OS-side). Check `sensor-bindings` in
-     the keymap and confirm the device is actually connected.
-   - **`LOG_ERR("A/B GPIO device is not ready")` at boot** → a
-     devicetree/pin configuration problem, not wiring - come back with
-     that exact message.
+4. Watch for `EC11: Delta: ...` lines as you turn the encoder, and
+   `kscan_direct_read: Sending event ...` lines as you press buttons.
+   Note that whichever BLE profile is selected, ZMK still prefers USB
+   as the active output transport whenever a cable is plugged in — so
+   don't expect BLE-side effects (like a pairing combo) to be visible
+   while debugging over this same USB cable. Test those unplugged.
 5. This is a temporary debug artifact - once you've diagnosed the issue,
    remove the second entry from `build.yaml` (or just keep using the
    normal artifact for everyday flashing; the debug one is only for
@@ -141,12 +139,16 @@ your TV without re-pairing every time.
   1), then pair from the TV's Bluetooth settings menu.
 - **Switch between them later:** just repeat the relevant combo — no
   re-pairing needed, ZMK remembers both.
-- **Clear a broken pairing:** hold `play/pause` + `next` + the encoder
-  push button together to forget the currently active profile's pairing,
-  then pair again.
+- **Clear a broken pairing:** hold `play/pause` + `next` + the spare
+  (unbound) button together to forget the currently active profile's
+  pairing, then pair again.
 - **Switch USB ↔ Bluetooth:** hold `play/pause` + `next` + the joystick
   push button together to toggle output. Plug in a cable any time you
   want wired/zero-latency mode.
+
+Reminder: these are BLE-side combos, so test them unplugged (or on a
+different host) — while a USB cable is connected, ZMK keeps using USB as
+the output regardless of which BLE profile is selected.
 
 ## Controls
 
@@ -155,10 +157,10 @@ your TV without re-pairing every time.
 | `play/pause` button | Play / pause |
 | `next` button | Next track |
 | `prev` button | Previous track |
-| `mute` button | Mute |
 | Encoder turn | Volume up / down |
-| Encoder push | Unbound (free for a future function) |
-| Joystick tilt | Move mouse cursor |
+| Encoder push | Mute |
+| Spare button | Unbound (free for a future function) |
+| Joystick tilt | Move mouse cursor (coarse digital, see Pin layout) |
 | Joystick push | Left click |
 
 ## First-time bring-up / testing
@@ -170,40 +172,30 @@ below is independently checkable:
    bootloader mode on double-tap-reset, and boots the new firmware
    without crashing (an LED blink pattern or just staying enumerated over
    USB is enough evidence — see Flashing above).
-2. **Buttons first.** Wire just `play/pause`/`next`/`prev`/`mute` and pair
-   over BLE (or plug in via USB — no pairing needed to test). On macOS,
+2. **Buttons first.** Wire just `play/pause`/`next`/`prev`. On macOS,
    open any media app (Music, Spotify, a YouTube tab) and press each
-   button; you should see play/pause/track-change/mute respond
-   immediately. If a button does nothing, double check it's on the pin
-   the overlay expects and that it's wired to *ground* (these use
-   `GPIO_ACTIVE_LOW` + internal pull-up, so a press should short the pin
-   to GND).
+   button; you should see play/pause/track-change respond immediately.
+   If a button does nothing, double check it's on the pin the overlay
+   expects and that it's wired to *ground* (these use `GPIO_ACTIVE_LOW` +
+   internal pull-up, so a press should short the pin to GND).
 3. **Encoder next.** Wire the encoder A/B pins and its push button. Turn
-   it — volume should move in the OS. If it moves the wrong direction,
-   swap the A/B wires (or swap `a-gpios`/`b-gpios` in the overlay). Its
-   push button is currently unbound (`&none`), so pressing it should do
-   nothing — that's expected, not a bug.
-4. **Joystick last**, since it's the least tested part of this build.
-   Wire X/Y to the two ADC pins from the table above and the click button
-   to its digital pin. On macOS, watch the cursor: it should sit still at
-   rest and move when tilted. If it drifts at rest, increase `deadzone`
-   in the overlay's `joystick` node; if too slow/fast, adjust
-   `sensitivity` (lower = faster). Each tuning change needs a re-flash.
+   it — volume should move in the OS; push should mute. If it moves the
+   wrong direction, swap the A/B wires (or swap the two args in
+   `sensor-bindings` in the keymap).
+4. **Joystick last**, since it's the least tested part of this build and
+   uses the digital-threshold fallback described in Pin layout above.
+   Wire X/Y to D10/D16 and the click button to A0. On macOS, watch the
+   cursor: tilting each direction should nudge it at constant speed;
+   expect some jitter/chatter near center rather than a dead-still rest
+   position, since this isn't true analog.
 5. **Bluetooth profile switching.** With everything wired, test the
-   pairing combos (see Pairing below) — pair to macOS on profile 0, then
-   try the TV/profile 1 combo and confirm it visibly disconnects from one
-   and becomes discoverable for the other.
+   pairing combos (see Pairing above) *unplugged* — pair to macOS on
+   profile 0, then try the TV/profile 1 combo and confirm it visibly
+   disconnects from one and becomes discoverable for the other.
 6. **USB fallback.** Plug in a USB-C cable and use the output-toggle
    combo; confirm the device still responds when BLE is out of range or
    off, without needing to re-pair anything.
 
-If a stage fails, isolate it: comment out later stages in the overlay
-(or just don't wire them yet) so you know exactly which piece to
-debug — don't debug all five inputs at once.
-
-## Tuning the joystick
-
-Once flashed, if the cursor drifts at rest, increase `deadzone` in the
-`joystick` node in `media_controller.overlay`. If movement feels too
-slow/fast, decrease/increase `sensitivity` (it's a divisor — lower means
-faster movement). Re-push to trigger a CI rebuild after each change.
+If a stage fails, isolate it: use the debug-log build (see above) to
+check whether firmware sees the input at all before assuming it's a
+wiring problem.

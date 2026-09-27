@@ -1,8 +1,8 @@
 /*
  * Media Controller shield
  *
- * 4 direct buttons (play/pause, next, prev, dedicated mute), 1 rotary
- * encoder (volume on turn; its own push button is unbound for now), and
+ * 4 direct buttons (play/pause, next, prev, a spare unbound button), 1
+ * rotary encoder (volume on turn; its push button is bound to mute), and
  * a joystick (click = left-click; X/Y tilt = coarse cursor movement).
  *
  * Pin numbers below use the standard nice!nano "pro_micro" connector
@@ -13,8 +13,8 @@
  *   play/pause          20                A2
  *   next                19                A1
  *   prev                21                A3
- *   mute                3                 D3
- *   encoder push        2                 D2 (unbound)
+ *   spare (unbound)     3                 D3
+ *   encoder push (mute) 2                 D2
  *   joystick push       18 (P1.15)        A0
  *   encoder A           1                 D1
  *   encoder B           0                 D0
@@ -60,8 +60,8 @@
             = <&pro_micro 20 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>  // play/pause
             , <&pro_micro 19 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>  // next
             , <&pro_micro 21 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>  // prev
-            , <&pro_micro 3 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>   // mute
-            , <&pro_micro 2 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>   // encoder push (unbound)
+            , <&pro_micro 3 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>   // spare (unbound)
+            , <&pro_micro 2 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>   // encoder push (mute)
             , <&pro_micro 18 (GPIO_ACTIVE_LOW | GPIO_PULL_UP)>  // joystick push (left-click)
             , <&pro_micro 10 (GPIO_ACTIVE_HIGH)>                // joystick X high half -> tilt right
             , <&pro_micro 10 (GPIO_ACTIVE_LOW)>                 // joystick X low half  -> tilt left
@@ -74,7 +74,7 @@
         compatible = "zmk,matrix-transform";
         columns = <10>;
         rows = <1>;
-        //  play    next    prev    mute    enc-push  joy-push  x-hi    x-lo    y-hi    y-lo
+        //  play    next    prev    spare   enc-push  joy-push  x-hi    x-lo    y-hi    y-lo
         map = <
             RC(0,0) RC(0,1) RC(0,2) RC(0,3) RC(0,4)   RC(0,5)   RC(0,6) RC(0,7) RC(0,8) RC(0,9)
         >;

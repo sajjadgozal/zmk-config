@@ -1,16 +1,16 @@
 /*
  * Media Controller keymap
  *
- * Layout (physical positions 0-4):
- *   0: prev   1: play/pause   2: next   3: encoder push (mute)   4: joystick push (left-click)
+ * Layout (physical positions 0-5):
+ *   0: play/pause   1: next   2: prev   3: mute   4: encoder push (unbound)   5: joystick push (left-click)
  *   encoder turn: volume up / down
  *   joystick tilt: mouse cursor movement (see analog_joystick driver)
  *
  * Bluetooth profile switching (no dedicated buttons needed):
- *   hold prev + next together        -> select profile 0 (use for macOS)
- *   hold prev + play together        -> select profile 1 (use for TV)
- *   hold play + next + enc-push      -> clear the currently active profile's pairing
- *   hold play + next + joy-push      -> toggle output between USB and BLE
+ *   hold prev + next together          -> select profile 0 (use for macOS)
+ *   hold prev + play together          -> select profile 1 (use for TV)
+ *   hold play + next + enc-push        -> clear the currently active profile's pairing
+ *   hold play + next + joy-push        -> toggle output between USB and BLE
  *
  * Pair to macOS: put device in profile 0 (prev+next combo), then pair from
  * System Settings > Bluetooth as usual.
@@ -33,25 +33,25 @@
 
         combo_bt_mac {
             timeout-ms = <60>;
-            key-positions = <0 2>;
+            key-positions = <2 1>;
             bindings = <&bt BT_SEL 0>;
         };
 
         combo_bt_tv {
             timeout-ms = <60>;
-            key-positions = <0 1>;
+            key-positions = <2 0>;
             bindings = <&bt BT_SEL 1>;
         };
 
         combo_bt_clear {
             timeout-ms = <60>;
-            key-positions = <1 2 3>;
+            key-positions = <0 1 4>;
             bindings = <&bt BT_CLR>;
         };
 
         combo_out_tog {
             timeout-ms = <60>;
-            key-positions = <1 2 4>;
+            key-positions = <0 1 5>;
             bindings = <&out OUT_TOG>;
         };
     };
@@ -61,7 +61,7 @@
 
         default_layer {
             bindings = <
-                &kp C_PREV   &kp C_PP   &kp C_NEXT   &kp C_MUTE   &mkp LCLK
+                &kp C_PP   &kp C_NEXT   &kp C_PREV   &kp C_MUTE   &none   &mkp LCLK
             >;
 
             sensor-bindings = <&inc_dec_kp C_VOL_UP C_VOL_DN>;

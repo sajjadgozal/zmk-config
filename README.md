@@ -1,13 +1,13 @@
 # media_controller
 
-A ZMK-based media remote / mini pointing device: 3 buttons (prev /
-play-pause / next), a rotary encoder (volume + mute), and an analog
-joystick (cursor movement + left-click) — built for a Pro-Micro-footprint
-nRF52840 board (target: "V1940 Pro Micro nRF52840", flashed as
-`nice_nano//zmk` since it shares the nice!nano v2 pinout). Works over BLE
-(pairs as a standard HID keyboard/consumer-control/mouse device — no
-drivers needed on macOS or Bluetooth-capable TVs) or over a USB cable,
-switchable at any time.
+A ZMK-based media remote / mini pointing device: 4 buttons (play-pause /
+next / prev / a dedicated mute), a rotary encoder (volume on turn; its
+own push button is currently unbound), and an analog joystick (cursor
+movement + left-click) — built for a Pro-Micro-footprint nRF52840 board
+(target: "V1940 Pro Micro nRF52840", flashed as `nice_nano//zmk` since it
+shares the nice!nano v2 pinout). Works over BLE (pairs as a standard HID
+keyboard/consumer-control/mouse device — no drivers needed on macOS or
+Bluetooth-capable TVs) or over a USB cable, switchable at any time.
 
 ## Repo layout
 
@@ -38,13 +38,14 @@ switchable at any time.
 
 | Signal | pro_micro index | Silkscreen label (nice!nano-pinout boards) |
 |---|---|---|
-| prev | 4 | D4 |
-| play/pause | 5 | D5 |
-| next | 6 | D6 |
-| encoder push (mute) | 7 | D7 |
-| joystick push (left-click) | 9 | D9 |
-| encoder A | 8 | D8 |
-| encoder B | 10 | D10 |
+| play/pause | 4 | D4 |
+| next | 5 | D5 |
+| prev | 6 | D6 |
+| mute | 3 | D3 |
+| encoder push (unbound) | 2 | D2 |
+| joystick push (left-click) | 18 (P1.15) | A0 |
+| encoder A | 1 | D1 |
+| encoder B | 0 | D0 |
 | joystick X | 19 (AIN0) | A1 |
 | joystick Y | 20 (AIN5) | A2 |
 
@@ -55,10 +56,14 @@ knowing if you need to change pins:
 
 - Buttons/encoder can go on any free digital GPIO.
 - The joystick's X/Y wires **must** land on ADC-capable pins. On this
-  chip, only 3 header pins qualify — the ones silkscreened `A1`/`A2`/`A3`.
-  The pin labeled `A0` is *not* ADC-capable here (unlike on a real
-  Arduino), so don't use it for the joystick even though the label
-  suggests otherwise.
+  chip (confirmed against Nordic's official nRF52840 datasheet), only 3
+  header pins qualify — the ones silkscreened `A1`/`A2`/`A3` (SoC pins
+  P0.02/P0.29/P0.31 = AIN0/AIN5/AIN7). Every other pin, including the one
+  labeled `A0` (routed to P1.15) and the pins labeled `D10`/`D16`
+  (P0.09/P0.10, the chip's dedicated NFC antenna pins), is *not*
+  SAADC-capable — that's fixed in silicon, no devicetree/Kconfig setting
+  changes it. Don't route the joystick's analog signals to those
+  regardless of what a label suggests.
 
 ## Building the firmware
 
@@ -111,11 +116,12 @@ your TV without re-pairing every time.
 
 | Input | Action |
 |---|---|
-| `prev` button | Previous track |
 | `play/pause` button | Play / pause |
 | `next` button | Next track |
+| `prev` button | Previous track |
+| `mute` button | Mute |
 | Encoder turn | Volume up / down |
-| Encoder push | Mute |
+| Encoder push | Unbound (free for a future function) |
 | Joystick tilt | Move mouse cursor |
 | Joystick push | Left click |
 
@@ -128,17 +134,19 @@ below is independently checkable:
    bootloader mode on double-tap-reset, and boots the new firmware
    without crashing (an LED blink pattern or just staying enumerated over
    USB is enough evidence — see Flashing above).
-2. **Buttons first.** Wire just `prev`/`play/pause`/`next` and pair over
-   BLE (or plug in via USB — no pairing needed to test). On macOS, open
-   any media app (Music, Spotify, a YouTube tab) and press each button;
-   you should see play/pause/track-change respond immediately. If a
-   button does nothing, double check it's on the pin the overlay expects
-   and that it's wired to *ground* (these use `GPIO_ACTIVE_LOW` +
-   internal pull-up, so a press should short the pin to GND).
+2. **Buttons first.** Wire just `play/pause`/`next`/`prev`/`mute` and pair
+   over BLE (or plug in via USB — no pairing needed to test). On macOS,
+   open any media app (Music, Spotify, a YouTube tab) and press each
+   button; you should see play/pause/track-change/mute respond
+   immediately. If a button does nothing, double check it's on the pin
+   the overlay expects and that it's wired to *ground* (these use
+   `GPIO_ACTIVE_LOW` + internal pull-up, so a press should short the pin
+   to GND).
 3. **Encoder next.** Wire the encoder A/B pins and its push button. Turn
    it — volume should move in the OS. If it moves the wrong direction,
-   swap the A/B wires (or swap `a-gpios`/`b-gpios` in the overlay). Push
-   should mute.
+   swap the A/B wires (or swap `a-gpios`/`b-gpios` in the overlay). Its
+   push button is currently unbound (`&none`), so pressing it should do
+   nothing — that's expected, not a bug.
 4. **Joystick last**, since it's the least tested part of this build.
    Wire X/Y to the two ADC pins from the table above and the click button
    to its digital pin. On macOS, watch the cursor: it should sit still at

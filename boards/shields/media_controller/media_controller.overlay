@@ -83,7 +83,7 @@
     joystick: joystick {
         compatible = "zmk,analog-joystick";
         io-channels = <&adc 1>, <&adc 2>;
-        deadzone = <200>;
+        deadzone = <400>;
         sensitivity = <80>;
         poll-interval-ms = <20>;
         // arrow-layer defaults to 1, matching arrow_layer in the keymap.

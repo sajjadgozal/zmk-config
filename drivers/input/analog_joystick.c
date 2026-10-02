@@ -10,12 +10,13 @@
  * centered) - see analog_joystick_update_arrow_keys().
  *
  * The center position isn't fixed after boot: whenever a given axis is
- * within its own deadzone (i.e. reporting no movement), its center
- * slowly drifts toward the current reading. This absorbs small
- * persistent calibration offsets or thermal drift (common with
- * magnetic/TMR joystick modules) that would otherwise cause a constant
- * slow cursor creep in one direction. It never affects a genuine held
- * deflection, since that branch only runs below the deadzone threshold.
+ * close to rest, its center slowly drifts toward the current reading.
+ * This absorbs small persistent calibration offsets or thermal drift
+ * (common with magnetic/TMR joystick modules) that would otherwise cause
+ * a constant slow cursor creep in one direction. The drift is bounded
+ * (see RECENTER_WINDOW_DIV / RECENTER_MAX_DRIFT_DIV) so it can never walk
+ * the center far enough away that releasing the stick reads as a held
+ * deflection.
  *
  * `deadzone` and `sensitivity` in the devicetree node will likely still
  * need tuning per joystick module.
@@ -51,6 +52,10 @@ struct analog_joystick_data {
     struct k_work_delayable work;
     int32_t center_x;
     int32_t center_y;
+    /* Boot-calibrated center; auto-recentering stays within a bounded
+     * distance of this. */
+    int32_t rest_x;
+    int32_t rest_y;
     int32_t last_raw_x;
     int32_t last_raw_y;
     bool calibrated;
@@ -79,6 +84,33 @@ struct analog_joystick_data {
 #define CALIBRATION_SAMPLE_INTERVAL_MS 5
 
 /*
+ * Auto-recentering bounds, as divisors of the deadzone:
+ * - only readings within deadzone/RECENTER_WINDOW_DIV of the current
+ *   center pull it, so a thumb resting on (or slowly tilting) the stick
+ *   can't drag the center along with it;
+ * - the center never moves more than deadzone/RECENTER_MAX_DRIFT_DIV
+ *   from the boot calibration, so a released stick always lands back
+ *   inside the deadzone. Without this cap, a slow tilt could walk the
+ *   center out to one side 1/32 step at a time; on release the stick
+ *   then read as a large held deflection, which is outside the deadzone,
+ *   so recentering never ran again and the cursor/arrow key stuck.
+ */
+#define RECENTER_WINDOW_DIV 4
+#define RECENTER_MAX_DRIFT_DIV 2
+
+/*
+ * Arrow-mode release threshold, as a fraction of the deadzone. A key is
+ * pressed past the deadzone but only released once back below this,
+ * so ADC noise right at the edge can't chatter the key (each chatter is
+ * a separate arrow press on the host).
+ */
+#define ARROW_RELEASE_NUM 3
+#define ARROW_RELEASE_DEN 4
+
+/* SAADC hardware oversampling: 2^2 = 4 samples averaged per read. */
+#define ADC_OVERSAMPLING 2
+
+/*
  * Reads one ADC channel. Returns 0 and writes the raw value to *out on
  * success, or a negative error code on failure - callers should fall
  * back to the last known-good reading rather than treating a failed
@@ -89,6 +121,7 @@ static int analog_joystick_read(const struct adc_dt_spec *spec, int32_t *out) {
     struct adc_sequence sequence = {
         .buffer = &buf,
         .buffer_size = sizeof(buf),
+        .oversampling = ADC_OVERSAMPLING,
     };
 
     int err = adc_sequence_init_dt(spec, &sequence);
@@ -142,6 +175,8 @@ static void analog_joystick_calibrate_step(struct analog_joystick_data *data,
         data->center_x = 0;
         data->center_y = 0;
     }
+    data->rest_x = data->center_x;
+    data->rest_y = data->center_y;
     data->last_raw_x = data->center_x;
     data->last_raw_y = data->center_y;
     data->calibrated = true;
@@ -171,28 +206,40 @@ static void analog_joystick_release_arrow_keys(struct analog_joystick_data *data
 }
 
 /*
+ * Picks one axis's arrow key with hysteresis: press past the deadzone,
+ * but keep an already-held key until the deflection drops below the
+ * lower release threshold.
+ */
+static uint32_t analog_joystick_arrow_for_axis(int32_t d, uint32_t held, uint16_t deadzone,
+                                               uint32_t pos_key, uint32_t neg_key) {
+    int32_t release = (int32_t)deadzone * ARROW_RELEASE_NUM / ARROW_RELEASE_DEN;
+
+    if (d > deadzone || (held == pos_key && d > release)) {
+        return pos_key;
+    }
+    if (d < -deadzone || (held == neg_key && d < -release)) {
+        return neg_key;
+    }
+    return 0;
+}
+
+/*
  * Arrow-key mode: each axis holds at most one direction key, pressed
- * while tilted past the deadzone and released once back within it.
+ * while tilted past the deadzone and released once back near center.
  * Only sends a report when the pressed key(s) actually change, rather
  * than every poll cycle.
  */
 static void analog_joystick_update_arrow_keys(struct analog_joystick_data *data,
                                                const struct analog_joystick_config *cfg,
                                                int32_t dx, int32_t dy) {
-    uint32_t new_x_key = 0;
-    uint32_t new_y_key = 0;
-
-    if (dx > cfg->deadzone) {
-        new_x_key = HID_USAGE_KEY_KEYBOARD_RIGHTARROW;
-    } else if (dx < -cfg->deadzone) {
-        new_x_key = HID_USAGE_KEY_KEYBOARD_LEFTARROW;
-    }
-
-    if (dy > cfg->deadzone) {
-        new_y_key = HID_USAGE_KEY_KEYBOARD_DOWNARROW;
-    } else if (dy < -cfg->deadzone) {
-        new_y_key = HID_USAGE_KEY_KEYBOARD_UPARROW;
-    }
+    uint32_t new_x_key =
+        analog_joystick_arrow_for_axis(dx, data->x_arrow_key, cfg->deadzone,
+                                       HID_USAGE_KEY_KEYBOARD_RIGHTARROW,
+                                       HID_USAGE_KEY_KEYBOARD_LEFTARROW);
+    uint32_t new_y_key =
+        analog_joystick_arrow_for_axis(dy, data->y_arrow_key, cfg->deadzone,
+                                       HID_USAGE_KEY_KEYBOARD_DOWNARROW,
+                                       HID_USAGE_KEY_KEYBOARD_UPARROW);
 
     bool changed = false;
 
@@ -220,7 +267,33 @@ static void analog_joystick_update_arrow_keys(struct analog_joystick_data *data,
 
     if (changed) {
         zmk_endpoint_send_report(HID_USAGE_KEY);
+        /*
+         * Arrow keys go straight to the HID report, bypassing the event
+         * system ZMK's idle/sleep tracking watches, so arrow-only use
+         * would otherwise power the board off mid-use after
+         * CONFIG_ZMK_IDLE_SLEEP_TIMEOUT. Any input event counts as
+         * activity; an unsynced EV_MSC one is ignored by the mouse
+         * input listener, so it sends nothing to the host.
+         */
+        input_report(data->dev, INPUT_EV_MSC, INPUT_MSC_SCAN, 0, false, K_NO_WAIT);
     }
+}
+
+/*
+ * Pulls one axis's center toward the current reading while the stick is
+ * near rest, bounded to stay close to the boot calibration.
+ */
+static void analog_joystick_recenter_axis(int32_t *center, int32_t rest, int32_t raw,
+                                          uint16_t deadzone) {
+    int32_t window = deadzone / RECENTER_WINDOW_DIV;
+    int32_t max_drift = deadzone / RECENTER_MAX_DRIFT_DIV;
+    int32_t d = raw - *center;
+
+    if (d > window || d < -window) {
+        return;
+    }
+
+    *center = CLAMP(*center + d / 32, rest - max_drift, rest + max_drift);
 }
 
 /*
@@ -307,21 +380,13 @@ static void analog_joystick_work_handler(struct k_work *work) {
     bool arrow_mode = zmk_keymap_layer_active(cfg->arrow_layer);
 
     /*
-     * Auto-recenter: whenever an axis is within its own deadzone (i.e.
-     * reporting no movement in either mode), slowly drift the calibrated
-     * center toward the current reading. Corrects small persistent
-     * offsets (an imperfect boot-time calibration, thermal drift,
+     * Auto-recenter: corrects small persistent offsets (thermal drift,
      * mechanical creep) that would otherwise cause a constant slow drift
-     * in one direction forever - without ever affecting a genuine held
-     * deflection, since this only runs while already below the deadzone.
+     * in one direction. Bounded - see RECENTER_WINDOW_DIV and
+     * RECENTER_MAX_DRIFT_DIV for why.
      */
-    if (dx <= cfg->deadzone && dx >= -cfg->deadzone) {
-        data->center_x += (raw_x - data->center_x) / 32;
-    }
-
-    if (dy <= cfg->deadzone && dy >= -cfg->deadzone) {
-        data->center_y += (raw_y - data->center_y) / 32;
-    }
+    analog_joystick_recenter_axis(&data->center_x, data->rest_x, raw_x, cfg->deadzone);
+    analog_joystick_recenter_axis(&data->center_y, data->rest_y, raw_y, cfg->deadzone);
 
     if (arrow_mode) {
         analog_joystick_update_arrow_keys(data, cfg, dx, dy);

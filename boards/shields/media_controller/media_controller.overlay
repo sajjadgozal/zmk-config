@@ -83,8 +83,10 @@
     joystick: joystick {
         compatible = "zmk,analog-joystick";
         io-channels = <&adc 1>, <&adc 2>;
-        deadzone = <400>;
-        sensitivity = <80>;
+        // Scaled ~1.09x from 400/80 when the ADC full scale changed from
+        // 3.6V to VDD (3.3V) - same physical feel as before.
+        deadzone = <440>;
+        sensitivity = <88>;
         poll-interval-ms = <20>;
         // arrow-layer defaults to 1, matching arrow_layer in the keymap.
     };
@@ -112,11 +114,19 @@
      * That's exactly what happened here: joystick X was actually
      * sampling VDDH the whole time, appearing "frozen" at whatever the
      * battery voltage was and completely unresponsive to movement.
+     *
+     * Reference is VDD/4 with gain 1/4, i.e. full scale = VDD: the
+     * joystick pots are powered from the same 3.3V rail, so readings are
+     * ratiometric and the resting center doesn't shift when the supply
+     * does. With the fixed 0.6V internal reference, a sagging battery
+     * (LDO dropout, BLE TX bursts) or plugging/unplugging USB moved the
+     * pot's output in absolute volts and the stick appeared to suddenly
+     * tilt to one side.
      */
     channel@1 {
         reg = <1>;
-        zephyr,gain = "ADC_GAIN_1_6";
-        zephyr,reference = "ADC_REF_INTERNAL";
+        zephyr,gain = "ADC_GAIN_1_4";
+        zephyr,reference = "ADC_REF_VDD_1_4";
         zephyr,acquisition-time = <ADC_ACQ_TIME(ADC_ACQ_TIME_MICROSECONDS, 40)>;
         zephyr,input-positive = <NRF_SAADC_AIN0>; // joystick X - pro_micro pin 19, silkscreen "A1"
         zephyr,resolution = <12>;
@@ -124,8 +134,8 @@
 
     channel@2 {
         reg = <2>;
-        zephyr,gain = "ADC_GAIN_1_6";
-        zephyr,reference = "ADC_REF_INTERNAL";
+        zephyr,gain = "ADC_GAIN_1_4";
+        zephyr,reference = "ADC_REF_VDD_1_4";
         zephyr,acquisition-time = <ADC_ACQ_TIME(ADC_ACQ_TIME_MICROSECONDS, 40)>;
         zephyr,input-positive = <NRF_SAADC_AIN5>; // joystick Y - pro_micro pin 20, silkscreen "A2"
         zephyr,resolution = <12>;

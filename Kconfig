@@ -1,1 +1,2 @@
 rsource "drivers/input/Kconfig.analog_joystick"
+rsource "src/Kconfig.endpoint_layer"

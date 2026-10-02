@@ -1,0 +1,21 @@
+config ZMK_ENDPOINT_LAYER
+    bool "Activate a keymap layer while a given BLE profile is the active output"
+    depends on ZMK_BLE
+    help
+      Keeps keymap layer ZMK_ENDPOINT_LAYER_INDEX active exactly while
+      the device is outputting over BLE profile ZMK_ENDPOINT_LAYER_PROFILE,
+      and inactive on every other profile and over USB. Lets a button
+      do something different per host (e.g. media prev/next on a Mac,
+      Android TV navigation keys on a TV).
+
+if ZMK_ENDPOINT_LAYER
+
+config ZMK_ENDPOINT_LAYER_PROFILE
+    int "BLE profile index that activates the layer"
+    default 1
+
+config ZMK_ENDPOINT_LAYER_INDEX
+    int "Keymap layer index to activate"
+    default 2
+
+endif

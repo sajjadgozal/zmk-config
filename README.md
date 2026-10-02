@@ -1,7 +1,8 @@
 # media_controller
 
 A ZMK-based media remote / mini pointing device: 3 buttons (play-pause /
-back / home), an encoder push button bound to mute, a rotary encoder
+next / prev — next/prev become Home/Back while connected to the TV, see
+"Output modes"), an encoder push button bound to mute, a rotary encoder
 (volume on turn), a mode-toggle button, and a joystick — built for a
 Pro-Micro-footprint nRF52840 board (target: "V1940 Pro Micro nRF52840",
 flashed as `nice_nano//zmk` since it shares the nice!nano v2 pinout).
@@ -10,7 +11,7 @@ device — no drivers needed on macOS or Bluetooth-capable TVs) or over a
 USB cable, switchable at any time.
 
 Two keymap layers, swapped with the mode-toggle button, change what the
-joystick does — everything else (play/pause/back/home/mute/volume) is
+joystick does — everything else (play/pause/next/prev/mute/volume) is
 identical in both:
 
 - **Mouse mode** (default): joystick tilt moves the cursor, joystick
@@ -53,8 +54,8 @@ See "Modes" below for details.
 | Signal | pro_micro index | Silkscreen label |
 |---|---|---|
 | play/pause | 16 (P0.10) | D16 |
-| home (Media Select Home) | 10 (P0.09) | D10 |
-| back (Escape) | 21 (P0.31) | A3 |
+| next (Home on TV profile) | 10 (P0.09) | D10 |
+| prev (Back on TV profile) | 21 (P0.31) | A3 |
 | mode-toggle | 3 | D3 |
 | encoder push (mute) | 2 | D2 |
 | joystick push (left-click) | 18 (P1.15) | A0 |
@@ -65,7 +66,7 @@ See "Modes" below for details.
 
 Joystick X/Y are true analog readings here — A1/A2 (P0.02/P0.29 =
 AIN0/AIN5) are 2 of the board's only 3 SAADC-capable pins (confirmed
-against Nordic's official nRF52840 datasheet). play/pause and back moved
+against Nordic's official nRF52840 datasheet). play/pause and next moved
 onto D10/D16 (P0.09/P0.10, the chip's NFC1/NFC2 antenna pins) to free up
 A1/A2 for the joystick — that's electrically fine for plain digital
 buttons (`CONFIG_NFCT_PINS_AS_GPIOS=y` makes them usable as GPIO at all).
@@ -123,37 +124,36 @@ enabled for sensors (covers the EC11 encoder driver).
    `kscan_direct_read: Sending event ...` lines as you press buttons.
    Note that whichever BLE profile is selected, ZMK still prefers USB
    as the active output transport whenever a cable is plugged in — so
-   don't expect BLE-side effects (like a pairing combo) to be visible
-   while debugging over this same USB cable. Test those unplugged.
+   don't expect BLE-side effects to be visible while debugging over
+   this same USB cable unless you select a profile with its combo
+   (which switches output to Bluetooth).
 5. This is a temporary debug artifact - once you've diagnosed the issue,
    remove the second entry from `build.yaml` (or just keep using the
    normal artifact for everyday flashing; the debug one is only for
    troubleshooting sessions like this).
 
-## Pairing
+## Output modes
 
-ZMK keeps up to 5 separate Bluetooth pairings ("profiles") and you switch
-which one is active — that's how one device talks to both your Mac and
-your TV without re-pairing every time.
+Three ways to connect, each picked with a combo:
 
-- **Pair to macOS:** hold `home` + `back` together (selects profile 0),
-  then on the Mac go to System Settings → Bluetooth and pair with
-  "Media Remote".
-- **Pair to a TV:** hold `back` + `play/pause` together (selects profile
-  1), then pair from the TV's Bluetooth settings menu.
-- **Switch between them later:** just repeat the relevant combo — no
-  re-pairing needed, ZMK remembers both.
-- **Clear a broken pairing:** hold `play/pause` + `home` + the
-  mode-toggle button together to forget the currently active profile's
-  pairing, then pair again. (This combo works regardless of which mode
-  layer is active.)
-- **Switch USB ↔ Bluetooth:** hold `play/pause` + `home` + the joystick
-  push button together to toggle output. Plug in a cable any time you
-  want wired/zero-latency mode.
+| Combo | Output | next / prev buttons |
+|---|---|---|
+| hold `prev` + `play/pause` | Bluetooth profile 0 (Mac) | media next / previous track |
+| hold `prev` + `next` | Bluetooth profile 1 (Android TV) | Home / Back (Escape) |
+| hold `play/pause` + `next` + joystick push | USB cable | media next / previous track |
 
-Reminder: these are BLE-side combos, so test them unplugged (or on a
-different host) — while a USB cable is connected, ZMK keeps using USB as
-the output regardless of which BLE profile is selected.
+- The two Bluetooth combos also switch output to Bluetooth, so they work
+  even with a cable plugged in (otherwise ZMK keeps sending over USB
+  whenever a cable is connected).
+- The next/prev → Home/Back switch is automatic: `src/endpoint_layer.c`
+  turns the keymap's `tv_layer` on only while Bluetooth profile 1 is the
+  active, connected output (`CONFIG_ZMK_ENDPOINT_LAYER` in
+  `media_controller.conf`).
+- **First pairing:** select the profile with its combo, then pair from the
+  Mac's System Settings → Bluetooth or the TV's Bluetooth menu ("Media
+  Remote"). ZMK remembers both; just repeat a combo to switch later.
+- **Clear a broken pairing:** hold `play/pause` + `next` + the
+  mode-toggle button to forget the currently active profile's pairing.
 
 ## Modes
 
@@ -194,7 +194,7 @@ fixable purely from this firmware:
   survive. If they don't, there's currently no known working Home
   button over generic BLE HID for this TV.
 
-Everything else — play/pause, back, home, mute, volume, and the
+Everything else — play/pause, next/prev, mute, volume, and the
 Bluetooth/output combos — behaves identically in both modes; only the
 joystick's behavior changes. The switch happens inside the joystick
 driver itself (it checks whether keymap layer 1 is active), not through
@@ -210,8 +210,8 @@ add more layers of your own, edit `arrow-layer` in the overlay's
 | Input | Action (mouse mode) | Action (arrow mode) |
 |---|---|---|
 | `play/pause` button | Play / pause | Play / pause |
-| `home` button | Home (unreliable, see below) | Home (unreliable, see below) |
-| `back` button | Back (Escape) | Back (Escape) |
+| `next` button | Next track (TV profile: Home, unreliable - see above) | same |
+| `prev` button | Previous track (TV profile: Back / Escape) | same |
 | Encoder turn | Volume up / down | Volume up / down |
 | Encoder push | Mute | Mute |
 | Mode-toggle button | Switch to arrow mode | Switch to mouse mode |
@@ -227,11 +227,9 @@ below is independently checkable:
    bootloader mode on double-tap-reset, and boots the new firmware
    without crashing (an LED blink pattern or just staying enumerated over
    USB is enough evidence — see Flashing above).
-2. **Buttons first.** Wire just `play/pause`/`back`/`home`. On macOS,
-   open any media app (Music, Spotify, a YouTube tab) and press
-   play/pause to confirm it responds; `back`/`home` are Android-oriented
-   (Escape / Media Select Home) so they may do nothing meaningful on
-   macOS — that's expected, test those on the TV instead. If a button
+2. **Buttons first.** Wire just `play/pause`/`next`/`prev`. On macOS,
+   open any media app (Music, Spotify, a YouTube tab) and press each
+   button; play/pause and track changes should respond immediately. If a button
    does nothing at all anywhere, double check it's on the pin the
    overlay expects and that it's wired to *ground* (these use
    `GPIO_ACTIVE_LOW` + internal pull-up, so a press should short the pin
@@ -247,7 +245,7 @@ below is independently checkable:
    node; if too slow/fast, adjust `sensitivity` (lower = faster). Each
    tuning change needs a re-flash.
 5. **Bluetooth profile switching.** With everything wired, test the
-   pairing combos (see Pairing above) *unplugged* — pair to macOS on
+   pairing combos (see Output modes above) *unplugged* — pair to macOS on
    profile 0, then try the TV/profile 1 combo and confirm it visibly
    disconnects from one and becomes discoverable for the other.
 6. **USB fallback.** Plug in a USB-C cable and use the output-toggle

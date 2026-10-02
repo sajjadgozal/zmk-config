@@ -2,55 +2,54 @@
  * Media Controller keymap
  *
  * Layout (physical positions 0-5):
- *   0: play/pause   1: home   2: back   3: mode-toggle button   4: encoder push (mute)   5: joystick push
- *   encoder turn: volume up / down (same in both layers)
+ *   0: play/pause (D16)   1: next (D10)   2: prev (A3)
+ *   3: mode-toggle (D3)   4: encoder push / mute (D2)   5: joystick push (A0)
+ *   encoder turn: volume up / down (all layers)
  *
+ * Three output modes, each picked with a combo:
+ *   hold prev + play               -> Bluetooth profile 0 (Mac)
+ *   hold prev + next               -> Bluetooth profile 1 (Android TV)
+ *   hold play + next + joy-push    -> cable (USB) mode
+ *   hold play + next + mode-toggle -> forget the current BT profile's pairing
+ * The two profile combos also switch output to Bluetooth, so they work
+ * even with a cable plugged in (ZMK otherwise keeps sending over USB
+ * whenever a cable is connected, whatever profile is selected).
+ *
+ * What the next/prev buttons send depends on the active output:
+ *   profile 0 and cable: media next / previous track
+ *   profile 1 (TV):      next = Home, prev = Back (Escape)
+ * That's the tv_layer below - it's switched on and off automatically by
+ * src/endpoint_layer.c (CONFIG_ZMK_ENDPOINT_LAYER in
+ * media_controller.conf) whenever the active output changes; there's no
+ * keymap binding for it.
+ *
+ * TV keys:
  * back = Escape (Android maps a keyboard's Escape key to the system
- * Back action - a well-documented OS-level convention, and it's a
- * keyboard-page key like the arrow keys, which are confirmed working).
- * home = Consumer "Media Select Home" (0x9A) - purpose-built for this
- * and, importantly, within the Basic consumer-usage range (see
- * CONFIG_ZMK_HID_CONSUMER_REPORT_USAGES_BASIC in media_controller.conf)
- * unlike AC Home/AC Back (0x223/0x224), which need Full and would
- * reintroduce the exact Android compatibility issue Basic mode fixed.
+ * Back action, and it's a keyboard-page key like the arrow keys, which
+ * are confirmed working).
+ * home = Consumer "Media Select Home" (0x9A), within the Basic
+ * consumer-usage range (see CONFIG_ZMK_HID_CONSUMER_REPORT_USAGES_BASIC
+ * in media_controller.conf), unlike AC Home (0x223), which needs Full
+ * and would reintroduce the Android compatibility issue Basic mode fixed.
  * NOTE: reported not to actually trigger Home on this TV - see README.
  *
  * joystick push in mouse mode sends BOTH a left-click and an Enter
  * keypress (click_or_enter macro below): some Android BLE hosts don't
- * register mouse-button clicks over BLE HID at all (movement works,
- * click doesn't - a known Android limitation, not fixable from here),
- * so Enter rides along as a keyboard-page fallback that's confirmed to
- * work on this TV, while still behaving as a normal left-click
- * elsewhere (e.g. macOS).
+ * register mouse-button clicks over BLE HID at all, so Enter rides along
+ * as a keyboard-page fallback that's confirmed to work on the TV.
  *
- * Two layers, toggled by the mode-toggle button (was spare/unbound):
+ * Joystick modes, toggled by the mode-toggle button:
  *   Layer 0 (mouse mode, default): joystick tilt moves the mouse
  *     cursor, joystick push = left-click + Enter (see above).
  *   Layer 1 (arrow mode): joystick tilt sends arrow-key presses
  *     (held while tilted, released when centered), joystick push =
- *     Enter - a natural pairing for keyboard-style menu navigation.
- * play/pause, back, home, mute, and volume are identical in both
- * layers. The joystick's actual behavior switch happens inside the
- * driver itself (drivers/input/analog_joystick.c watches whether layer
- * 1 is active), not here - it's a separate input-listener pipeline, not
- * a kscan position, so it has no keymap binding of its own.
- *
- * Bluetooth profile switching (no dedicated buttons needed, works from
- * either mode layer) - these key-positions are unchanged by the
- * home/back swap above, since combos trigger on physical positions
- * regardless of which function is currently bound there:
- *   hold home + back together          -> select profile 0 (use for macOS)
- *   hold back + play together          -> select profile 1 (use for TV)
- *   hold play + home + mode-toggle      -> clear the currently active profile's pairing
- *   hold play + home + joy-push         -> toggle output between USB and BLE
- *
- * Pair to macOS: put device in profile 0 (home+back combo), then pair from
- * System Settings > Bluetooth as usual.
- * Pair to a TV: switch to profile 1 (back+play combo) and pair from the
- * TV's Bluetooth settings. Repeat the combo any time to swap which device
- * receives input - ZMK remembers both pairings.
- * Plug in a USB cable and use the output-toggle combo to switch to wired
- * mode any time (e.g. if BLE isn't available or you want zero latency).
+ *     Enter. The tilt behavior switch happens inside
+ *     drivers/input/analog_joystick.c (it watches whether layer 1 is
+ *     active), since the joystick isn't a keymap position.
+ * Layer order matters: mouse_layer = 0, arrow_layer = 1 (must match the
+ * joystick's arrow-layer in the overlay), tv_layer = 2 (must match
+ * CONFIG_ZMK_ENDPOINT_LAYER_INDEX, default 2). tv_layer is highest so
+ * its next/prev override both joystick modes.
  */
 
 #include <behaviors.dtsi>
@@ -66,31 +65,43 @@
         bindings = <&mkp LCLK>, <&kp RET>;
     };
 
+    bt_mac: bt_mac {
+        compatible = "zmk,behavior-macro";
+        #binding-cells = <0>;
+        bindings = <&bt BT_SEL 0>, <&out OUT_BLE>;
+    };
+
+    bt_tv: bt_tv {
+        compatible = "zmk,behavior-macro";
+        #binding-cells = <0>;
+        bindings = <&bt BT_SEL 1>, <&out OUT_BLE>;
+    };
+
     combos {
         compatible = "zmk,combos";
 
         combo_bt_mac {
             timeout-ms = <60>;
-            key-positions = <2 1>;
-            bindings = <&bt BT_SEL 0>;
+            key-positions = <2 0>;  // prev + play
+            bindings = <&bt_mac>;
         };
 
         combo_bt_tv {
             timeout-ms = <60>;
-            key-positions = <2 0>;
-            bindings = <&bt BT_SEL 1>;
+            key-positions = <2 1>;  // prev + next
+            bindings = <&bt_tv>;
         };
 
         combo_bt_clear {
             timeout-ms = <60>;
-            key-positions = <0 1 3>;
+            key-positions = <0 1 3>;  // play + next + mode-toggle
             bindings = <&bt BT_CLR>;
         };
 
-        combo_out_tog {
+        combo_out_usb {
             timeout-ms = <60>;
-            key-positions = <0 1 5>;
-            bindings = <&out OUT_TOG>;
+            key-positions = <0 1 5>;  // play + next + joy-push
+            bindings = <&out OUT_USB>;
         };
     };
 
@@ -99,7 +110,7 @@
 
         mouse_layer {
             bindings = <
-                &kp C_PP   &kp C_MEDIA_HOME   &kp ESC   &tog 1   &kp C_MUTE   &click_or_enter
+                &kp C_PP   &kp C_NEXT   &kp C_PREV   &tog 1   &kp C_MUTE   &click_or_enter
             >;
 
             sensor-bindings = <&inc_dec_kp C_VOL_DN C_VOL_UP>;
@@ -107,7 +118,15 @@
 
         arrow_layer {
             bindings = <
-                &kp C_PP   &kp C_MEDIA_HOME   &kp ESC   &tog 1   &kp C_MUTE   &kp RET
+                &trans     &trans       &trans       &trans   &trans       &kp RET
+            >;
+
+            sensor-bindings = <&inc_dec_kp C_VOL_DN C_VOL_UP>;
+        };
+
+        tv_layer {
+            bindings = <
+                &trans     &kp C_MEDIA_HOME   &kp ESC   &trans   &trans   &trans
             >;
 
             sensor-bindings = <&inc_dec_kp C_VOL_DN C_VOL_UP>;

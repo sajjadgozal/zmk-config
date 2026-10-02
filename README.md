@@ -139,7 +139,7 @@ Three ways to connect, each picked with a combo:
 | Combo | Output | next / prev buttons |
 |---|---|---|
 | hold `prev` + `play/pause` | Bluetooth profile 0 (Mac) | media next / previous track |
-| hold `prev` + `next` | Bluetooth profile 1 (Android TV) | Home / Back (Escape) |
+| hold `prev` + `next` | Bluetooth profile 1 (Android TV) | Home / Back (mouse button 4) |
 | hold `play/pause` + `next` + joystick push | USB cable | media next / previous track |
 
 - The two Bluetooth combos also switch output to Bluetooth, so they work
@@ -211,7 +211,7 @@ add more layers of your own, edit `arrow-layer` in the overlay's
 |---|---|---|
 | `play/pause` button | Play / pause | Play / pause |
 | `next` button | Next track (TV profile: Home, unreliable - see above) | same |
-| `prev` button | Previous track (TV profile: Back / Escape) | same |
+| `prev` button | Previous track (TV profile: Back, sent as mouse button 4) | same |
 | Encoder turn | Volume up / down | Volume up / down |
 | Encoder push | Mute | Mute |
 | Mode-toggle button | Switch to arrow mode | Switch to mouse mode |

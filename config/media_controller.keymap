@@ -17,16 +17,20 @@
  *
  * What the next/prev buttons send depends on the active output:
  *   profile 0 and cable: media next / previous track
- *   profile 1 (TV):      next = Home, prev = Back (Escape)
+ *   profile 1 (TV):      next = Home, prev = Back (mouse button 4)
  * That's the tv_layer below - it's switched on and off automatically by
  * src/endpoint_layer.c (CONFIG_ZMK_ENDPOINT_LAYER in
  * media_controller.conf) whenever the active output changes; there's no
  * keymap binding for it.
  *
  * TV keys:
- * back = Escape (Android maps a keyboard's Escape key to the system
- * Back action, and it's a keyboard-page key like the arrow keys, which
- * are confirmed working).
+ * back = mouse button 4 (MB4, a mouse's "back" side button). Android
+ * turns it into the real system KEYCODE_BACK in its input reader, so no
+ * app can swallow it. Escape was used before, but Android only maps
+ * Escape to Back as a *fallback* when the focused app doesn't handle
+ * Escape itself, so it worked in some apps and not others. The TV
+ * remote's own Back (Consumer AC Back, 0x224) needs Full consumer
+ * usages, which broke the other media keys on this TV.
  * home = Consumer "Media Select Home" (0x9A), within the Basic
  * consumer-usage range (see CONFIG_ZMK_HID_CONSUMER_REPORT_USAGES_BASIC
  * in media_controller.conf), unlike AC Home (0x223), which needs Full
@@ -126,7 +130,7 @@
 
         tv_layer {
             bindings = <
-                &trans     &kp C_MEDIA_HOME   &kp ESC   &trans   &trans   &trans
+                &trans     &kp C_MEDIA_HOME   &mkp MB4   &trans   &trans   &trans
             >;
 
             sensor-bindings = <&inc_dec_kp C_VOL_DN C_VOL_UP>;

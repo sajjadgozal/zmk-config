@@ -6,17 +6,18 @@
  *   3: mode-toggle (D3)   4: encoder push / mute (D2)   5: joystick push (A0)
  *   encoder turn: volume up / down (all layers)
  *
- * Three output modes, each picked with a combo:
+ * Bluetooth profiles, each picked with a combo:
  *   hold prev + play               -> Bluetooth profile 0 (Mac)
  *   hold prev + next               -> Bluetooth profile 1 (Android TV)
- *   hold play + next + joy-push    -> cable (USB) mode
+ *   hold play + next               -> Bluetooth profile 2 (second Mac)
  *   hold play + next + mode-toggle -> forget the current BT profile's pairing
- * The two profile combos also switch output to Bluetooth, so they work
- * even with a cable plugged in (ZMK otherwise keeps sending over USB
- * whenever a cable is connected, whatever profile is selected).
+ * USB always wins: whenever a cable to a computer is plugged in, output
+ * goes over USB, whatever profile is selected; unplugged, it goes to the
+ * selected BT profile. The profile combos also set ZMK's (persisted)
+ * preferred output back to USB, in case an older firmware saved BLE.
  *
  * What the next/prev buttons send depends on the active output:
- *   profile 0 and cable: media next / previous track
+ *   profiles 0, 2 and cable: media next / previous track
  *   profile 1 (TV):      next = Home, prev = Back (mouse button 4)
  * That's the tv_layer below - it's switched on and off automatically by
  * src/endpoint_layer.c (CONFIG_ZMK_ENDPOINT_LAYER in
@@ -72,13 +73,19 @@
     bt_mac: bt_mac {
         compatible = "zmk,behavior-macro";
         #binding-cells = <0>;
-        bindings = <&bt BT_SEL 0>, <&out OUT_BLE>;
+        bindings = <&bt BT_SEL 0>, <&out OUT_USB>;
     };
 
     bt_tv: bt_tv {
         compatible = "zmk,behavior-macro";
         #binding-cells = <0>;
-        bindings = <&bt BT_SEL 1>, <&out OUT_BLE>;
+        bindings = <&bt BT_SEL 1>, <&out OUT_USB>;
+    };
+
+    bt_mac2: bt_mac2 {
+        compatible = "zmk,behavior-macro";
+        #binding-cells = <0>;
+        bindings = <&bt BT_SEL 2>, <&out OUT_USB>;
     };
 
     combos {
@@ -96,16 +103,16 @@
             bindings = <&bt_tv>;
         };
 
+        combo_bt_mac2 {
+            timeout-ms = <60>;
+            key-positions = <0 1>;  // play + next
+            bindings = <&bt_mac2>;
+        };
+
         combo_bt_clear {
             timeout-ms = <60>;
             key-positions = <0 1 3>;  // play + next + mode-toggle
             bindings = <&bt BT_CLR>;
-        };
-
-        combo_out_usb {
-            timeout-ms = <60>;
-            key-positions = <0 1 5>;  // play + next + joy-push
-            bindings = <&out OUT_USB>;
         };
     };
 

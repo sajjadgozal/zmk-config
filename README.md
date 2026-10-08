@@ -33,8 +33,8 @@ See "Modes" below for details.
   `media_controller.conf`, needed because ZMK's `main` branch briefly
   treats using its own (still-required) KSCAN subsystem as deprecated
   post-Zephyr-4.1-upgrade.)
-- `config/media_controller.keymap` — key bindings + Bluetooth-profile /
-  output-toggle combos
+- `config/media_controller.keymap` — key bindings + Bluetooth-profile
+  combos
 - `config/media_controller.conf` — BLE/USB/pointing/power Kconfig options
 - `boards/shields/media_controller/` — the custom "shield": which GPIO
   pins the buttons/encoder/joystick are wired to
@@ -122,11 +122,9 @@ enabled for sensors (covers the EC11 encoder driver).
    (`Ctrl-A` then `K` to exit `screen` when done.)
 4. Watch for `EC11: Delta: ...` lines as you turn the encoder, and
    `kscan_direct_read: Sending event ...` lines as you press buttons.
-   Note that whichever BLE profile is selected, ZMK still prefers USB
-   as the active output transport whenever a cable is plugged in — so
-   don't expect BLE-side effects to be visible while debugging over
-   this same USB cable unless you select a profile with its combo
-   (which switches output to Bluetooth).
+   Note that USB always wins: whichever BLE profile is selected, output
+   goes over USB while this cable is plugged in, so don't expect
+   BLE-side effects to be visible while debugging over it.
 5. This is a temporary debug artifact - once you've diagnosed the issue,
    remove the second entry from `build.yaml` (or just keep using the
    normal artifact for everyday flashing; the debug one is only for
@@ -134,24 +132,26 @@ enabled for sensors (covers the EC11 encoder driver).
 
 ## Output modes
 
-Three ways to connect, each picked with a combo:
+**USB always wins:** while a cable to a computer is plugged in, output
+goes over USB, whatever Bluetooth profile is selected (a power-only
+charger doesn't count). Unplugged, it uses the selected Bluetooth
+profile, picked with a combo:
 
 | Combo | Output | next / prev buttons |
 |---|---|---|
 | hold `prev` + `play/pause` | Bluetooth profile 0 (Mac) | media next / previous track |
 | hold `prev` + `next` | Bluetooth profile 1 (Android TV) | Home / Back (mouse button 4) |
-| hold `play/pause` + `next` + joystick push | USB cable | media next / previous track |
+| hold `play/pause` + `next` | Bluetooth profile 2 (second Mac) | media next / previous track |
 
-- The two Bluetooth combos also switch output to Bluetooth, so they work
-  even with a cable plugged in (otherwise ZMK keeps sending over USB
-  whenever a cable is connected).
+- The profile combos also reset ZMK's saved preferred output to USB
+  (older firmware saved Bluetooth there, which made BLE beat the cable).
 - The next/prev → Home/Back switch is automatic: `src/endpoint_layer.c`
   turns the keymap's `tv_layer` on only while Bluetooth profile 1 is the
   active, connected output (`CONFIG_ZMK_ENDPOINT_LAYER` in
   `media_controller.conf`).
 - **First pairing:** select the profile with its combo, then pair from the
   Mac's System Settings → Bluetooth or the TV's Bluetooth menu ("Media
-  Remote"). ZMK remembers both; just repeat a combo to switch later.
+  Remote"). ZMK remembers all three; just repeat a combo to switch later.
 - **Clear a broken pairing:** hold `play/pause` + `next` + the
   mode-toggle button to forget the currently active profile's pairing.
 
@@ -248,9 +248,9 @@ below is independently checkable:
    pairing combos (see Output modes above) *unplugged* — pair to macOS on
    profile 0, then try the TV/profile 1 combo and confirm it visibly
    disconnects from one and becomes discoverable for the other.
-6. **USB fallback.** Plug in a USB-C cable and use the output-toggle
-   combo; confirm the device still responds when BLE is out of range or
-   off, without needing to re-pair anything.
+6. **USB wins.** Plug in a USB-C cable to a computer; confirm output
+   moves to USB without any combo, and back to the selected Bluetooth
+   profile when unplugged, without needing to re-pair anything.
 
 If a stage fails, isolate it: use the debug-log build (see above) to
 check whether firmware sees the input at all before assuming it's a

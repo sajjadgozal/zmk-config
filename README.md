@@ -97,8 +97,11 @@ The output `.uf2` will be in `build/zephyr/zmk.uf2`.
 
 ## Flashing
 
-1. Double-tap the board's reset button to drop it into UF2 bootloader mode
-   (it will show up as a USB mass-storage drive, usually named `NICENANO`).
+1. With the board plugged into your computer by USB, hold mode-toggle +
+   mute (encoder push) + joystick push together to drop it into UF2
+   bootloader mode (it will show up as a USB mass-storage drive, usually
+   named `NICENANO`). Double-tapping the reset button does the same and
+   still works as a fallback, e.g. if a broken firmware crashes at boot.
 2. Drag `zmk.uf2` onto that drive. The board reboots automatically running
    the new firmware.
 
@@ -154,6 +157,10 @@ profile, picked with a combo:
   Remote"). ZMK remembers all three; just repeat a combo to switch later.
 - **Clear a broken pairing:** hold `play/pause` + `next` + the
   mode-toggle button to forget the currently active profile's pairing.
+- **Restart:** hold mode-toggle + mute (encoder push). Keep your thumb
+  off the joystick for 2 seconds afterwards while it re-measures center.
+- **Flashing mode:** hold mode-toggle + mute + joystick push (see
+  Flashing above).
 
 ## Modes
 

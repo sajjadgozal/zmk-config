@@ -23,17 +23,34 @@ properties:
       position before any movement is reported. Increase if the cursor
       drifts at rest.
 
-  sensitivity:
+  max-speed:
     type: int
-    default: 24
+    default: 1200
     description: |
-      Divisor applied to raw deflection to compute reported movement per
-      poll. Higher values mean slower cursor movement.
+      Mouse-mode cursor speed, in pixels per second, at full deflection.
+
+  curve:
+    type: int
+    default: 2
+    enum: [1, 2, 3]
+    description: |
+      Mouse-mode response curve: deflection past the deadzone (0..1) is
+      raised to this power. 1 = linear, 2 = quadratic (fine control near
+      center), 3 = cubic (even finer near center, steeper at the edge).
 
   poll-interval-ms:
     type: int
-    default: 20
-    description: How often to sample the joystick and report movement.
+    default: 10
+    description: |
+      How often to sample the joystick and report movement while it's
+      being tilted (or an arrow key is held).
+
+  idle-poll-interval-ms:
+    type: int
+    default: 30
+    description: |
+      Slower sampling interval used while the stick is at rest, to save
+      power. Also bounds the extra latency before movement starts.
 
   arrow-layer:
     type: int

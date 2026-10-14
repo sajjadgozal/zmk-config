@@ -44,7 +44,7 @@ See "Modes" below for details.
   relative mouse movement by default once deflection passes a deadzone;
   while the devicetree's `arrow-layer` (default `1`) is the active ZMK
   keymap layer, it instead sends held arrow-key presses — see "Modes"
-  below. Tune `deadzone`/`sensitivity` in the overlay's `joystick` node
+  below. Tune `deadzone`/`max-speed`/`curve` in the overlay's `joystick` node
   to taste.
 - `build.yaml` — tells GitHub Actions which board+shield to build; also
   has a second debug-logging build entry, see "Debugging over USB serial"
@@ -242,7 +242,7 @@ below is independently checkable:
    Wire X/Y to A1/A2 and the click button to A0. On macOS, watch the
    cursor: it should sit still at rest and move smoothly when tilted. If
    it drifts at rest, increase `deadzone` in the overlay's `joystick`
-   node; if too slow/fast, adjust `sensitivity` (lower = faster). Each
+   node; if too slow/fast, adjust `max-speed` (pixels per second at full tilt). Each
    tuning change needs a re-flash.
 5. **Bluetooth profile switching.** With everything wired, test the
    pairing combos (see Output modes above) *unplugged* — pair to macOS on
@@ -258,7 +258,13 @@ wiring problem.
 
 ## Tuning the joystick
 
-Once flashed, if the cursor drifts at rest, increase `deadzone` in the
-`joystick` node in `media_controller.overlay`. If movement feels too
-slow/fast, decrease/increase `sensitivity` (it's a divisor — lower means
-faster movement). Re-push to trigger a CI rebuild after each change.
+All in the `joystick` node in `media_controller.overlay`; each change
+needs a rebuild and re-flash.
+
+- `deadzone` — raise it if the cursor drifts at rest.
+- `max-speed` — cursor speed in pixels per second at full tilt.
+- `curve` — how speed grows with tilt: `1` linear, `2` quadratic
+  (default: slow and precise near center, fast at the edge), `3` cubic
+  (even more precision near center).
+- `poll-interval-ms` / `idle-poll-interval-ms` — sampling rate while
+  tilted / at rest. Lower is smoother but uses a bit more battery.

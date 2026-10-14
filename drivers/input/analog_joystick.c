@@ -18,8 +18,10 @@
  * the center far enough away that releasing the stick reads as a held
  * deflection.
  *
- * `deadzone` and `sensitivity` in the devicetree node will likely still
- * need tuning per joystick module.
+ * Mouse mode uses a radial deadzone, a response curve and sub-pixel
+ * accumulation - see analog_joystick_update_mouse_move(). `deadzone`,
+ * `max-speed` and `curve` in the devicetree node will likely still need
+ * tuning per joystick module.
  */
 
 #define DT_DRV_COMPAT zmk_analog_joystick
@@ -44,8 +46,10 @@ struct analog_joystick_config {
     struct adc_dt_spec x_channel;
     struct adc_dt_spec y_channel;
     uint16_t deadzone;
-    uint16_t sensitivity;
+    uint16_t max_speed;
+    uint8_t curve;
     uint16_t poll_interval_ms;
+    uint16_t idle_poll_interval_ms;
     uint8_t arrow_layer;
 };
 
@@ -67,6 +71,11 @@ struct analog_joystick_data {
     uint16_t still_polls_y;
     bool calibrated;
     bool idle_synced;
+    /* Mouse mode: sub-pixel movement carried between polls, in Q16
+     * fixed point (1 px = 65536). */
+    int32_t mouse_rem_x;
+    int32_t mouse_rem_y;
+    int64_t last_poll_ms;
     uint32_t x_arrow_key;
     uint32_t y_arrow_key;
 
@@ -129,6 +138,9 @@ struct analog_joystick_data {
  * analog_joystick_recover_axis().
  */
 #define STUCK_RECOVER_MS 1500
+
+/* Fixed-point scale used by the mouse-mode speed math. */
+#define Q16_ONE 65536
 
 /* SAADC hardware oversampling: 2^2 = 4 samples averaged per read. */
 #define ADC_OVERSAMPLING 2
@@ -380,33 +392,80 @@ static void analog_joystick_recover_axis(const char *name, int32_t *center, int3
     *rest = raw;
 }
 
+static uint32_t isqrt32(uint32_t v) {
+    uint32_t root = 0;
+    uint32_t bit = 1UL << 30;
+
+    while (bit > v) {
+        bit >>= 2;
+    }
+    while (bit != 0) {
+        if (v >= root + bit) {
+            v -= root + bit;
+            root = (root >> 1) + bit;
+        } else {
+            root >>= 1;
+        }
+        bit >>= 2;
+    }
+    return root;
+}
+
 /*
- * Mouse mode: reports relative cursor movement while deflection exceeds
- * the deadzone. Sends the zero-delta "stop" sync event only once, on the
- * transition back to rest, rather than every idle poll cycle - avoiding
- * needless HID/BLE traffic while the stick just sits centered.
+ * Mouse mode: turns deflection into cursor velocity.
+ *
+ * - Radial deadzone: the deadzone is a circle around the center, not a
+ *   square per axis, so diagonals near the center don't snap to an axis.
+ * - Deadzone-rescaled: speed starts from 0 at the deadzone edge instead
+ *   of jumping straight to a sizeable speed.
+ * - Response curve: normalized deflection t (0..1) is raised to `curve`
+ *   (1 = linear, 2 = quadratic, 3 = cubic), giving fine control near the
+ *   center and full `max-speed` (px/s) at the edge.
+ * - Time-based: movement per poll scales with the real time since the
+ *   last poll, so speed doesn't depend on the (adaptive) poll rate.
+ * - Sub-pixel accumulation: fractional pixels carry over to the next
+ *   poll instead of being truncated, so slow speeds move smoothly
+ *   rather than stalling or stepping.
+ *
+ * Sends the zero-delta "stop" sync event only once, on the transition
+ * back to rest, rather than every idle poll cycle.
  */
 static void analog_joystick_update_mouse_move(struct analog_joystick_data *data,
                                                const struct analog_joystick_config *cfg,
-                                               int32_t dx, int32_t dy) {
-    int32_t sensitivity = cfg->sensitivity > 0 ? (int32_t)cfg->sensitivity : 1;
-    bool report_x = false;
-    bool report_y = false;
-    int32_t move_x = 0;
-    int32_t move_y = 0;
+                                               int32_t dx, int32_t dy, int32_t dt_ms) {
+    int32_t mag = (int32_t)isqrt32((uint32_t)(dx * dx + dy * dy));
+    int32_t out_x = 0;
+    int32_t out_y = 0;
 
-    if (dx > cfg->deadzone || dx < -cfg->deadzone) {
-        move_x = dx / sensitivity;
-        report_x = move_x != 0;
+    if (mag > cfg->deadzone) {
+        /* Full deflection is roughly half the ADC range from center. */
+        int32_t half = BIT(cfg->x_channel.resolution - 1);
+        int32_t span = MAX(half - cfg->deadzone, 1);
+        uint64_t t = MIN((uint64_t)(mag - cfg->deadzone) * Q16_ONE / span, Q16_ONE);
+
+        uint64_t f = t;
+        for (uint8_t i = 1; i < CLAMP(cfg->curve, 1, 3); i++) {
+            f = f * t / Q16_ONE;
+        }
+
+        /* Pixels to move this poll, Q16, split along the stick direction. */
+        int64_t step = (int64_t)cfg->max_speed * (int64_t)f * dt_ms / 1000;
+        data->mouse_rem_x += (int32_t)(step * dx / mag);
+        data->mouse_rem_y += (int32_t)(step * dy / mag);
+
+        out_x = data->mouse_rem_x / Q16_ONE;
+        out_y = data->mouse_rem_y / Q16_ONE;
+        data->mouse_rem_x -= out_x * Q16_ONE;
+        data->mouse_rem_y -= out_y * Q16_ONE;
+    } else {
+        data->mouse_rem_x = 0;
+        data->mouse_rem_y = 0;
     }
 
-    if (dy > cfg->deadzone || dy < -cfg->deadzone) {
-        move_y = dy / sensitivity;
-        report_y = move_y != 0;
-    }
-
-    if (!report_x && !report_y) {
-        if (!data->idle_synced) {
+    if (out_x == 0 && out_y == 0) {
+        /* Still accumulating sub-pixel motion counts as moving, so don't
+         * send the stop sync until the stick is actually back at rest. */
+        if (mag <= cfg->deadzone && !data->idle_synced) {
             input_report_rel(data->dev, INPUT_REL_X, 0, true, K_NO_WAIT);
             data->idle_synced = true;
         }
@@ -422,12 +481,12 @@ static void analog_joystick_update_mouse_move(struct analog_joystick_data *data,
      * it's naturally the synced call already; otherwise make X the
      * synced call.
      */
-    if (report_x) {
-        input_report_rel(data->dev, INPUT_REL_X, move_x, !report_y, K_NO_WAIT);
+    if (out_x != 0) {
+        input_report_rel(data->dev, INPUT_REL_X, out_x, out_y == 0, K_NO_WAIT);
     }
 
-    if (report_y) {
-        input_report_rel(data->dev, INPUT_REL_Y, move_y, true, K_NO_WAIT);
+    if (out_y != 0) {
+        input_report_rel(data->dev, INPUT_REL_Y, out_y, true, K_NO_WAIT);
     }
 }
 
@@ -441,6 +500,11 @@ static void analog_joystick_work_handler(struct k_work *work) {
         analog_joystick_calibrate_step(data, cfg);
         return;
     }
+
+    int64_t now = k_uptime_get();
+    int32_t dt_ms = CLAMP((int32_t)(now - data->last_poll_ms), 1,
+                          (int32_t)cfg->idle_poll_interval_ms * 2);
+    data->last_poll_ms = now;
 
     int32_t raw_x, raw_y;
 
@@ -486,10 +550,20 @@ static void analog_joystick_work_handler(struct k_work *work) {
             /* Layer changed mid-hold - don't leave an arrow key stuck down. */
             analog_joystick_release_arrow_keys(data);
         }
-        analog_joystick_update_mouse_move(data, cfg, dx, dy);
+        analog_joystick_update_mouse_move(data, cfg, dx, dy, dt_ms);
     }
 
-    k_work_schedule(&data->work, K_MSEC(cfg->poll_interval_ms));
+    /*
+     * Adaptive polling: fast while the stick is (starting to be) tilted
+     * or an arrow key is held, slower at rest to save power. The
+     * threshold is well inside the deadzone, so the fast rate is already
+     * running by the time movement starts.
+     */
+    int32_t wake = cfg->deadzone / 4;
+    bool active = dx > wake || dx < -wake || dy > wake || dy < -wake ||
+                  data->x_arrow_key != 0 || data->y_arrow_key != 0;
+    k_work_schedule(&data->work,
+                    K_MSEC(active ? cfg->poll_interval_ms : cfg->idle_poll_interval_ms));
 }
 
 static int analog_joystick_init(const struct device *dev) {
@@ -516,6 +590,9 @@ static int analog_joystick_init(const struct device *dev) {
     data->dev = dev;
     data->calibrated = false;
     data->idle_synced = false;
+    data->mouse_rem_x = 0;
+    data->mouse_rem_y = 0;
+    data->last_poll_ms = k_uptime_get();
     data->x_arrow_key = 0;
     data->y_arrow_key = 0;
     data->calibration_sum_x = 0;
@@ -541,8 +618,10 @@ static int analog_joystick_init(const struct device *dev) {
         .x_channel = ADC_DT_SPEC_INST_GET_BY_IDX(n, 0),                                          \
         .y_channel = ADC_DT_SPEC_INST_GET_BY_IDX(n, 1),                                          \
         .deadzone = DT_INST_PROP(n, deadzone),                                                   \
-        .sensitivity = DT_INST_PROP(n, sensitivity),                                             \
+        .max_speed = DT_INST_PROP(n, max_speed),                                                 \
+        .curve = DT_INST_PROP(n, curve),                                                         \
         .poll_interval_ms = DT_INST_PROP(n, poll_interval_ms),                                   \
+        .idle_poll_interval_ms = DT_INST_PROP(n, idle_poll_interval_ms),                         \
         .arrow_layer = DT_INST_PROP(n, arrow_layer),                                             \
     };                                                                                           \
     DEVICE_DT_INST_DEFINE(n, analog_joystick_init, NULL, &analog_joystick_data_##n,               \

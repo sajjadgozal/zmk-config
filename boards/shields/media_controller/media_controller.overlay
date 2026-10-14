@@ -83,11 +83,15 @@
     joystick: joystick {
         compatible = "zmk,analog-joystick";
         io-channels = <&adc 1>, <&adc 2>;
-        // Scaled ~1.09x from 400/80 when the ADC full scale changed from
+        // Scaled ~1.09x from 400 when the ADC full scale changed from
         // 3.6V to VDD (3.3V) - same physical feel as before.
         deadzone = <440>;
-        sensitivity = <88>;
-        poll-interval-ms = <20>;
+        // Mouse speed at full tilt (px/s) and response curve (1 linear,
+        // 2 quadratic, 3 cubic) - see the joystick binding for details.
+        max-speed = <1200>;
+        curve = <2>;
+        poll-interval-ms = <10>;       // while tilted
+        idle-poll-interval-ms = <30>;  // at rest
         // arrow-layer defaults to 1, matching arrow_layer in the keymap.
     };
 

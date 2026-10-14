@@ -209,7 +209,7 @@ add more layers of your own, edit `arrow-layer` in the overlay's
 
 | Input | Action (mouse mode) | Action (arrow mode) |
 |---|---|---|
-| `play/pause` button | Play / pause | Play / pause |
+| `play/pause` button | Play / pause (TV profile: tap = play/pause, hold = OK/Enter for apps that ignore media keys) | same |
 | `next` button | Next track (TV profile: Home, unreliable - see above) | same |
 | `prev` button | Previous track (TV profile: Back, sent as mouse button 4) | same |
 | Encoder turn | Volume up / down | Volume up / down |

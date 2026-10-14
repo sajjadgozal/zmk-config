@@ -19,6 +19,7 @@
  * What the next/prev buttons send depends on the active output:
  *   profiles 0, 2 and cable: media next / previous track
  *   profile 1 (TV):      next = Home, prev = Back (mouse button 4)
+ *                        play: tap = Play/Pause, hold = Enter (OK)
  * That's the tv_layer below - it's switched on and off automatically by
  * src/endpoint_layer.c (CONFIG_ZMK_ENDPOINT_LAYER in
  * media_controller.conf) whenever the active output changes; there's no
@@ -88,6 +89,21 @@
         bindings = <&bt BT_SEL 2>, <&out OUT_USB>;
     };
 
+    /*
+     * TV play button: tap = media Play/Pause, hold = Enter (OK).
+     * Android sends Play/Pause to the active media session, not
+     * necessarily the app on screen, and many TV apps only pause on the
+     * remote's OK button - hold gives that as a fallback. Not both at
+     * once: apps that handle both would toggle twice and look dead.
+     */
+    tv_play: tv_play {
+        compatible = "zmk,behavior-hold-tap";
+        #binding-cells = <2>;
+        flavor = "tap-preferred";
+        tapping-term-ms = <300>;
+        bindings = <&kp>, <&kp>;
+    };
+
     combos {
         compatible = "zmk,combos";
 
@@ -137,7 +153,7 @@
 
         tv_layer {
             bindings = <
-                &trans     &kp C_MEDIA_HOME   &mkp MB4   &trans   &trans   &trans
+                &tv_play RET C_PP   &kp C_MEDIA_HOME   &mkp MB4   &trans   &trans   &trans
             >;
 
             sensor-bindings = <&inc_dec_kp C_VOL_DN C_VOL_UP>;

@@ -24,6 +24,8 @@
 
 #define DT_DRV_COMPAT zmk_analog_joystick
 
+#include <stdlib.h>
+
 #include <zephyr/kernel.h>
 #include <zephyr/device.h>
 #include <zephyr/drivers/adc.h>
@@ -58,6 +60,11 @@ struct analog_joystick_data {
     int32_t rest_y;
     int32_t last_raw_x;
     int32_t last_raw_y;
+    /* Stuck-center recovery (see analog_joystick_recover_axis). */
+    int32_t still_anchor_x;
+    int32_t still_anchor_y;
+    uint16_t still_polls_x;
+    uint16_t still_polls_y;
     bool calibrated;
     bool idle_synced;
     uint32_t x_arrow_key;
@@ -66,6 +73,8 @@ struct analog_joystick_data {
     /* Incremental, non-blocking boot calibration state. */
     int32_t calibration_sum_x;
     int32_t calibration_sum_y;
+    int32_t calibration_first_x;
+    int32_t calibration_first_y;
     uint8_t calibration_samples;
 };
 
@@ -74,10 +83,9 @@ struct analog_joystick_data {
  * Deliberately generous: a short window (e.g. 100ms) risks firing while
  * the board is still being handled right after being plugged in or
  * flashed, capturing a skewed "center" that's actually the stick being
- * touched/held rather than at rest - which then gets permanently locked
- * in, since it lands far outside the deadzone and the runtime
- * auto-recentering (see below) only nudges the center when a reading is
- * already *within* the deadzone.
+ * touched/held rather than at rest. Samples are also discarded and
+ * retaken if the stick moves during them, and a center that still ends
+ * up wrong is caught later by analog_joystick_recover_axis().
  */
 #define CALIBRATION_DELAY_MS 2000
 #define CALIBRATION_SAMPLES 8
@@ -106,6 +114,21 @@ struct analog_joystick_data {
  */
 #define ARROW_RELEASE_NUM 3
 #define ARROW_RELEASE_DEN 4
+
+/*
+ * A reading counts as "still" while it stays within STILL_TOLERANCE raw
+ * counts of where it started. Used both to reject a boot calibration
+ * taken while the stick was moving, and for stuck-center recovery.
+ */
+#define STILL_TOLERANCE 48
+
+/*
+ * Stuck-center recovery: if an axis reads past the deadzone but sits
+ * perfectly still for this long, it's a candidate for "the stick is
+ * actually at rest and the center is wrong" - see
+ * analog_joystick_recover_axis().
+ */
+#define STUCK_RECOVER_MS 1500
 
 /* SAADC hardware oversampling: 2^2 = 4 samples averaged per read. */
 #define ADC_OVERSAMPLING 2
@@ -149,36 +172,48 @@ static int analog_joystick_read(const struct adc_dt_spec *spec, int32_t *out) {
 static void analog_joystick_calibrate_step(struct analog_joystick_data *data,
                                             const struct analog_joystick_config *cfg) {
     int32_t x, y;
-    bool ok_x = analog_joystick_read(&cfg->x_channel, &x) == 0;
-    bool ok_y = analog_joystick_read(&cfg->y_channel, &y) == 0;
 
-    if (ok_x) {
-        data->calibration_sum_x += x;
+    /* Only count samples where both axes read, so neither average is
+     * divided by a sample it never got. */
+    if (analog_joystick_read(&cfg->x_channel, &x) != 0 ||
+        analog_joystick_read(&cfg->y_channel, &y) != 0) {
+        k_work_schedule(&data->work, K_MSEC(CALIBRATION_SAMPLE_INTERVAL_MS));
+        return;
     }
-    if (ok_y) {
-        data->calibration_sum_y += y;
+
+    if (data->calibration_samples == 0) {
+        data->calibration_first_x = x;
+        data->calibration_first_y = y;
+    } else if (abs(x - data->calibration_first_x) > STILL_TOLERANCE ||
+               abs(y - data->calibration_first_y) > STILL_TOLERANCE) {
+        /* Stick is moving - it's being touched, not at rest. Start over. */
+        LOG_DBG("Stick moving during calibration; retrying");
+        data->calibration_sum_x = 0;
+        data->calibration_sum_y = 0;
+        data->calibration_samples = 0;
+        k_work_schedule(&data->work, K_MSEC(CALIBRATION_DELAY_MS / 4));
+        return;
     }
-    if (ok_x || ok_y) {
-        data->calibration_samples++;
-    }
+
+    data->calibration_sum_x += x;
+    data->calibration_sum_y += y;
+    data->calibration_samples++;
 
     if (data->calibration_samples < CALIBRATION_SAMPLES) {
         k_work_schedule(&data->work, K_MSEC(CALIBRATION_SAMPLE_INTERVAL_MS));
         return;
     }
 
-    if (data->calibration_samples > 0) {
-        data->center_x = data->calibration_sum_x / data->calibration_samples;
-        data->center_y = data->calibration_sum_y / data->calibration_samples;
-    } else {
-        LOG_ERR("Calibration got no valid ADC samples; defaulting center to 0");
-        data->center_x = 0;
-        data->center_y = 0;
-    }
+    data->center_x = data->calibration_sum_x / data->calibration_samples;
+    data->center_y = data->calibration_sum_y / data->calibration_samples;
     data->rest_x = data->center_x;
     data->rest_y = data->center_y;
     data->last_raw_x = data->center_x;
     data->last_raw_y = data->center_y;
+    data->still_anchor_x = data->center_x;
+    data->still_anchor_y = data->center_y;
+    data->still_polls_x = 0;
+    data->still_polls_y = 0;
     data->calibrated = true;
 
     LOG_INF("Calibrated center: x=%d y=%d", data->center_x, data->center_y);
@@ -297,6 +332,55 @@ static void analog_joystick_recenter_axis(int32_t *center, int32_t rest, int32_t
 }
 
 /*
+ * Stuck-center recovery for one axis. The boot calibration only happens
+ * once, 2s after power-up - including after waking from deep sleep,
+ * which is a full reboot usually triggered by pressing the joystick's
+ * own push button. If the stick is touched or tilted at that moment
+ * (pressing it down tends to tilt it), the wrong position becomes the
+ * center. On release the stick reads as a held deflection forever, and
+ * the bounded auto-recentering can't fix an error that large.
+ *
+ * A released stick is very still; a held one jitters. So when an axis
+ * reads past the deadzone but holds still for STUCK_RECOVER_MS, and that
+ * reading is clearly closer to mid-scale than the current center is,
+ * adopt it as the new center. The mid-scale test matters: the ADC is
+ * ratiometric, so a pot/TMR stick rests near VDD/2 = mid-scale, while a
+ * stick deliberately held still at a tilt reads *farther* from mid-scale
+ * than a correct center does and is left alone.
+ */
+static void analog_joystick_recover_axis(const char *name, int32_t *center, int32_t *rest,
+                                         int32_t *anchor, uint16_t *still_polls,
+                                         int32_t raw, int32_t mid,
+                                         const struct analog_joystick_config *cfg) {
+    int32_t d = raw - *center;
+
+    if (d <= cfg->deadzone && d >= -cfg->deadzone) {
+        *still_polls = 0;
+        return;
+    }
+
+    if (abs(raw - *anchor) > STILL_TOLERANCE) {
+        *anchor = raw;
+        *still_polls = 0;
+        return;
+    }
+
+    uint32_t needed = STUCK_RECOVER_MS / MAX(cfg->poll_interval_ms, 1);
+    if (++(*still_polls) < needed) {
+        return;
+    }
+    *still_polls = 0;
+
+    if (abs(raw - mid) + cfg->deadzone / 4 >= abs(*center - mid)) {
+        return;
+    }
+
+    LOG_WRN("%s center stuck at %d, stick resting at %d; recalibrating", name, *center, raw);
+    *center = raw;
+    *rest = raw;
+}
+
+/*
  * Mouse mode: reports relative cursor movement while deflection exceeds
  * the deadzone. Sends the zero-delta "stop" sync event only once, on the
  * transition back to rest, rather than every idle poll cycle - avoiding
@@ -387,6 +471,13 @@ static void analog_joystick_work_handler(struct k_work *work) {
      */
     analog_joystick_recenter_axis(&data->center_x, data->rest_x, raw_x, cfg->deadzone);
     analog_joystick_recenter_axis(&data->center_y, data->rest_y, raw_y, cfg->deadzone);
+
+    analog_joystick_recover_axis("X", &data->center_x, &data->rest_x, &data->still_anchor_x,
+                                 &data->still_polls_x, raw_x, BIT(cfg->x_channel.resolution - 1),
+                                 cfg);
+    analog_joystick_recover_axis("Y", &data->center_y, &data->rest_y, &data->still_anchor_y,
+                                 &data->still_polls_y, raw_y, BIT(cfg->y_channel.resolution - 1),
+                                 cfg);
 
     if (arrow_mode) {
         analog_joystick_update_arrow_keys(data, cfg, dx, dy);

@@ -86,10 +86,12 @@
         // Scaled ~1.09x from 400 when the ADC full scale changed from
         // 3.6V to VDD (3.3V) - same physical feel as before.
         deadzone = <440>;
-        // Mouse speed at full tilt (px/s) and response curve (1 linear,
-        // 2 quadratic, 3 cubic) - see the joystick binding for details.
-        max-speed = <1200>;
-        curve = <2>;
+        // Mouse speed at full tilt (px/s), response curve (0 linear ..
+        // 100 quadratic) and velocity smoothing - see the joystick binding
+        // (dts/bindings/input/zmk,analog-joystick.yaml) for details.
+        max-speed = <1600>;
+        expo = <60>;
+        smoothing-ms = <40>;
         poll-interval-ms = <10>;       // while tilted
         idle-poll-interval-ms = <30>;  // at rest
         // arrow-layer defaults to 1, matching arrow_layer in the keymap.

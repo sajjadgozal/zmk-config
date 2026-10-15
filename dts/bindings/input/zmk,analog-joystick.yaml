@@ -29,14 +29,32 @@ properties:
     description: |
       Mouse-mode cursor speed, in pixels per second, at full deflection.
 
-  curve:
+  expo:
     type: int
-    default: 2
-    enum: [1, 2, 3]
+    default: 60
     description: |
-      Mouse-mode response curve: deflection past the deadzone (0..1) is
-      raised to this power. 1 = linear, 2 = quadratic (fine control near
-      center), 3 = cubic (even finer near center, steeper at the edge).
+      Mouse-mode response curve, 0-100. Speed = (1 - e)*t + e*t^2 of
+      max-speed, where t is deflection past the deadzone (0..1) and
+      e = expo/100. 0 = linear (small tilts faster), 100 = quadratic
+      (more precision near center, slower small tilts).
+
+  smoothing-ms:
+    type: int
+    default: 40
+    description: |
+      Mouse-mode velocity smoothing time constant. Speed and direction
+      changes ease in over roughly this long instead of following every
+      stick jitter. 0 disables. Higher = smoother but less immediate.
+
+  full-deflection:
+    type: int
+    default: 1400
+    description: |
+      Starting guess, in raw ADC counts from center, for the deflection
+      that means full tilt (max-speed). The driver raises it
+      automatically to the largest deflection the stick actually
+      produces, so it only needs to be no larger than the stick's real
+      travel.
 
   poll-interval-ms:
     type: int

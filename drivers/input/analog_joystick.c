@@ -18,9 +18,10 @@
  * the center far enough away that releasing the stick reads as a held
  * deflection.
  *
- * Mouse mode uses a radial deadzone, a response curve and sub-pixel
- * accumulation - see analog_joystick_update_mouse_move(). `deadzone`,
- * `max-speed` and `curve` in the devicetree node will likely still need
+ * Mouse mode uses a radial deadzone, an expo response curve, velocity
+ * smoothing and sub-pixel accumulation - see
+ * analog_joystick_update_mouse_move(). `deadzone`, `max-speed`, `expo`
+ * and `smoothing-ms` in the devicetree node will likely still need
  * tuning per joystick module.
  */
 
@@ -47,7 +48,9 @@ struct analog_joystick_config {
     struct adc_dt_spec y_channel;
     uint16_t deadzone;
     uint16_t max_speed;
-    uint8_t curve;
+    uint8_t expo;
+    uint16_t smoothing_ms;
+    uint16_t full_deflection;
     uint16_t poll_interval_ms;
     uint16_t idle_poll_interval_ms;
     uint8_t arrow_layer;
@@ -75,6 +78,13 @@ struct analog_joystick_data {
      * fixed point (1 px = 65536). */
     int32_t mouse_rem_x;
     int32_t mouse_rem_y;
+    /* Mouse mode: smoothed cursor velocity, Q16 px/s. */
+    int32_t mouse_vel_x;
+    int32_t mouse_vel_y;
+    /* Mouse mode: deflection treated as full tilt. Starts at
+     * `full-deflection` and grows to the largest deflection actually
+     * seen, so max speed is reachable whatever the stick's real travel. */
+    int32_t full_mag;
     int64_t last_poll_ms;
     uint32_t x_arrow_key;
     uint32_t y_arrow_key;
@@ -418,14 +428,22 @@ static uint32_t isqrt32(uint32_t v) {
  *   square per axis, so diagonals near the center don't snap to an axis.
  * - Deadzone-rescaled: speed starts from 0 at the deadzone edge instead
  *   of jumping straight to a sizeable speed.
- * - Response curve: normalized deflection t (0..1) is raised to `curve`
- *   (1 = linear, 2 = quadratic, 3 = cubic), giving fine control near the
- *   center and full `max-speed` (px/s) at the edge.
- * - Time-based: movement per poll scales with the real time since the
- *   last poll, so speed doesn't depend on the (adaptive) poll rate.
- * - Sub-pixel accumulation: fractional pixels carry over to the next
- *   poll instead of being truncated, so slow speeds move smoothly
- *   rather than stalling or stepping.
+ * - Auto-ranged: t = 1 (full max-speed) at the largest deflection this
+ *   stick has actually produced, not at the theoretical ADC limit. Most
+ *   sticks physically travel well short of the rails, so normalizing to
+ *   the rails made max-speed unreachable and the top end feel slow.
+ * - Expo curve: f = (1 - e)*t + e*t^2, with e = `expo`/100. The linear
+ *   part keeps small tilts responsive; the quadratic part adds
+ *   precision near the center and a progressive top end. A pure power
+ *   curve (the previous t^2) was sluggish for most of the travel and
+ *   then ramped steeply.
+ * - Velocity smoothing: velocity eases toward the target with time
+ *   constant `smoothing-ms`, so speed and direction changes blend
+ *   instead of stepping with every jitter of the stick. Returning to
+ *   the deadzone stops immediately, so it never coasts.
+ * - Time-based + sub-pixel accumulation: movement scales with the real
+ *   time since the last poll, and fractional pixels carry over instead
+ *   of being truncated, so slow speeds move smoothly.
  *
  * Sends the zero-delta "stop" sync event only once, on the transition
  * back to rest, rather than every idle poll cycle.
@@ -438,20 +456,29 @@ static void analog_joystick_update_mouse_move(struct analog_joystick_data *data,
     int32_t out_y = 0;
 
     if (mag > cfg->deadzone) {
-        /* Full deflection is roughly half the ADC range from center. */
-        int32_t half = BIT(cfg->x_channel.resolution - 1);
-        int32_t span = MAX(half - cfg->deadzone, 1);
-        uint64_t t = MIN((uint64_t)(mag - cfg->deadzone) * Q16_ONE / span, Q16_ONE);
-
-        uint64_t f = t;
-        for (uint8_t i = 1; i < CLAMP(cfg->curve, 1, 3); i++) {
-            f = f * t / Q16_ONE;
+        if (mag > data->full_mag) {
+            /* Grow gradually so a single noisy sample can't overshoot. */
+            int32_t limit = BIT(cfg->x_channel.resolution);
+            data->full_mag = MIN(data->full_mag + (mag - data->full_mag + 7) / 8, limit);
         }
 
-        /* Pixels to move this poll, Q16, split along the stick direction. */
-        int64_t step = (int64_t)cfg->max_speed * (int64_t)f * dt_ms / 1000;
-        data->mouse_rem_x += (int32_t)(step * dx / mag);
-        data->mouse_rem_y += (int32_t)(step * dy / mag);
+        int32_t span = MAX(data->full_mag - cfg->deadzone, 1);
+        int64_t t = MIN((int64_t)(mag - cfg->deadzone) * Q16_ONE / span, Q16_ONE);
+        int64_t e = MIN(cfg->expo, 100);
+        int64_t f = ((100 - e) * t + e * (t * t / Q16_ONE)) / 100;
+
+        /* Target velocity in Q16 px/s, along the stick direction. */
+        int64_t speed = (int64_t)cfg->max_speed * f;
+        int64_t target_x = speed * dx / mag;
+        int64_t target_y = speed * dy / mag;
+
+        /* Exponential smoothing toward the target: alpha = dt/(tau+dt). */
+        int64_t tau = cfg->smoothing_ms;
+        data->mouse_vel_x += (int32_t)((target_x - data->mouse_vel_x) * dt_ms / (tau + dt_ms));
+        data->mouse_vel_y += (int32_t)((target_y - data->mouse_vel_y) * dt_ms / (tau + dt_ms));
+
+        data->mouse_rem_x += (int32_t)((int64_t)data->mouse_vel_x * dt_ms / 1000);
+        data->mouse_rem_y += (int32_t)((int64_t)data->mouse_vel_y * dt_ms / 1000);
 
         out_x = data->mouse_rem_x / Q16_ONE;
         out_y = data->mouse_rem_y / Q16_ONE;
@@ -460,6 +487,8 @@ static void analog_joystick_update_mouse_move(struct analog_joystick_data *data,
     } else {
         data->mouse_rem_x = 0;
         data->mouse_rem_y = 0;
+        data->mouse_vel_x = 0;
+        data->mouse_vel_y = 0;
     }
 
     if (out_x == 0 && out_y == 0) {
@@ -592,6 +621,9 @@ static int analog_joystick_init(const struct device *dev) {
     data->idle_synced = false;
     data->mouse_rem_x = 0;
     data->mouse_rem_y = 0;
+    data->mouse_vel_x = 0;
+    data->mouse_vel_y = 0;
+    data->full_mag = cfg->full_deflection;
     data->last_poll_ms = k_uptime_get();
     data->x_arrow_key = 0;
     data->y_arrow_key = 0;
@@ -619,7 +651,9 @@ static int analog_joystick_init(const struct device *dev) {
         .y_channel = ADC_DT_SPEC_INST_GET_BY_IDX(n, 1),                                          \
         .deadzone = DT_INST_PROP(n, deadzone),                                                   \
         .max_speed = DT_INST_PROP(n, max_speed),                                                 \
-        .curve = DT_INST_PROP(n, curve),                                                         \
+        .expo = DT_INST_PROP(n, expo),                                                           \
+        .smoothing_ms = DT_INST_PROP(n, smoothing_ms),                                           \
+        .full_deflection = DT_INST_PROP(n, full_deflection),                                     \
         .poll_interval_ms = DT_INST_PROP(n, poll_interval_ms),                                   \
         .idle_poll_interval_ms = DT_INST_PROP(n, idle_poll_interval_ms),                         \
         .arrow_layer = DT_INST_PROP(n, arrow_layer),                                             \

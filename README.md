@@ -44,7 +44,7 @@ See "Modes" below for details.
   relative mouse movement by default once deflection passes a deadzone;
   while the devicetree's `arrow-layer` (default `1`) is the active ZMK
   keymap layer, it instead sends held arrow-key presses — see "Modes"
-  below. Tune `deadzone`/`max-speed`/`curve` in the overlay's `joystick` node
+  below. Tune `deadzone`/`max-speed`/`expo` in the overlay's `joystick` node
   to taste.
 - `build.yaml` — tells GitHub Actions which board+shield to build; also
   has a second debug-logging build entry, see "Debugging over USB serial"
@@ -270,8 +270,13 @@ needs a rebuild and re-flash.
 
 - `deadzone` — raise it if the cursor drifts at rest.
 - `max-speed` — cursor speed in pixels per second at full tilt.
-- `curve` — how speed grows with tilt: `1` linear, `2` quadratic
-  (default: slow and precise near center, fast at the edge), `3` cubic
-  (even more precision near center).
+- `expo` — how speed grows with tilt, `0`–`100`: `0` is linear (small
+  tilts move faster), `100` is quadratic (more precision near center).
+  Default `60`.
+- `smoothing-ms` — how long speed/direction changes take to blend in.
+  Higher is smoother but less immediate; `0` disables. Default `40`.
+- `full-deflection` — starting guess for what counts as full tilt; the
+  driver learns the stick's real maximum as you use it, so this rarely
+  needs changing.
 - `poll-interval-ms` / `idle-poll-interval-ms` — sampling rate while
   tilted / at rest. Lower is smoother but uses a bit more battery.

@@ -169,9 +169,8 @@ between two layers — press once to switch, press again to switch back;
 it stays until you toggle it again, no holding required.
 
 - **Mouse mode** (layer 0, default at boot): joystick tilt moves the
-  mouse cursor at constant speed while held past the deadzone; joystick
-  push = left-click **and** Enter together (`click_or_enter` macro) — see
-  "Known Android limitations" below for why.
+  mouse cursor (speed grows with tilt); joystick push = left-click
+  (held while pressed, so dragging works).
 - **Arrow mode** (layer 1): joystick tilt sends a held arrow-key press
   per axis (release when centered — so holding right continuously
   repeats "right arrow" the way holding a real arrow key does); joystick
@@ -182,12 +181,12 @@ it stays until you toggle it again, no holding required.
 Testing on an Android TV turned up two host-side quirks that aren't
 fixable purely from this firmware:
 
-- **Mouse-button clicks over BLE HID don't register at all**, while
-  relative movement works fine — a known, widely-reported Android
-  limitation, not specific to this device. Worked around by having
-  joystick push send an Enter keypress alongside the click (see
-  `click_or_enter` in the keymap) — Enter is a keyboard-page key, which
-  *does* work.
+- **Mouse-button clicks over BLE HID seemed not to register** in early
+  testing, while movement worked. Joystick push used to send Enter
+  alongside the click as a workaround, but that pressed Enter on every
+  Mac click too, so it's now a plain click everywhere and being
+  re-tested on the TV. If clicks still don't register there, the fix is
+  a click + Enter binding in the keymap's `tv_layer` only.
 - **Consumer "Media Select Home" (0x9A) doesn't trigger Home** on this
   TV, despite being purpose-built for exactly this. The usage Android's
   own remotes actually use for Home is "AC Home" (0x223) — but that
@@ -223,7 +222,7 @@ add more layers of your own, edit `arrow-layer` in the overlay's
 | Encoder push | Mute | Mute |
 | Mode-toggle button | Switch to arrow mode | Switch to mouse mode |
 | Joystick tilt | Move mouse cursor | Arrow-key presses |
-| Joystick push | Left click + Enter | Enter |
+| Joystick push | Left click | Enter |
 
 ## First-time bring-up / testing
 

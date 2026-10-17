@@ -44,14 +44,15 @@
  * and would reintroduce the Android compatibility issue Basic mode fixed.
  * NOTE: reported not to actually trigger Home on this TV - see README.
  *
- * joystick push in mouse mode sends BOTH a left-click and an Enter
- * keypress (click_or_enter macro below): some Android BLE hosts don't
- * register mouse-button clicks over BLE HID at all, so Enter rides along
- * as a keyboard-page fallback that's confirmed to work on the TV.
+ * joystick push in mouse mode is a plain left-click (held while
+ * pressed, so dragging works) on every output, TV included. It used to
+ * also send Enter as a fallback for the TV, but that made every click
+ * on a Mac press Enter too. Being re-tested on the TV: if clicks don't
+ * register there, put a click + Enter binding in tv_layer only.
  *
  * Joystick modes, toggled by the mode-toggle button:
  *   Layer 0 (mouse mode, default): joystick tilt moves the mouse
- *     cursor, joystick push = left-click + Enter (see above).
+ *     cursor, joystick push = left-click.
  *   Layer 1 (arrow mode): joystick tilt sends arrow-key presses
  *     (held while tilted, released when centered), joystick push =
  *     Enter. The tilt behavior switch happens inside
@@ -70,12 +71,6 @@
 #include <dt-bindings/zmk/mouse.h>
 
 / {
-    click_or_enter: click_or_enter {
-        compatible = "zmk,behavior-macro";
-        #binding-cells = <0>;
-        bindings = <&mkp LCLK>, <&kp RET>;
-    };
-
     bt_mac: bt_mac {
         compatible = "zmk,behavior-macro";
         #binding-cells = <0>;
@@ -156,7 +151,7 @@
 
         mouse_layer {
             bindings = <
-                &kp C_PP   &kp C_NEXT   &kp C_PREV   &tog 1   &kp C_MUTE   &click_or_enter
+                &kp C_PP   &kp C_NEXT   &kp C_PREV   &tog 1   &kp C_MUTE   &mkp LCLK
             >;
 
             sensor-bindings = <&inc_dec_kp C_VOL_DN C_VOL_UP>;

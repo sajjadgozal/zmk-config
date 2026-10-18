@@ -90,6 +90,37 @@
     };
 
     /*
+     * Volume knob: each encoder detent sends two volume presses
+     * instead of one, so 0 -> 100 on the TV takes ~1.5 turns instead
+     * of 3. Repeating presses inside a macro (rather than raising
+     * triggers-per-rotation in the overlay) keeps every trigger on a
+     * detent, so a knob resting between clicks can't jitter the volume.
+     * Raise/lower the number of &kp taps to tune speed.
+     */
+    vol_up_multi: vol_up_multi {
+        compatible = "zmk,behavior-macro";
+        #binding-cells = <0>;
+        wait-ms = <10>;
+        tap-ms = <20>;
+        bindings = <&macro_tap &kp C_VOL_UP &kp C_VOL_UP>;
+    };
+
+    vol_dn_multi: vol_dn_multi {
+        compatible = "zmk,behavior-macro";
+        #binding-cells = <0>;
+        wait-ms = <10>;
+        tap-ms = <20>;
+        bindings = <&macro_tap &kp C_VOL_DN &kp C_VOL_DN>;
+    };
+
+    // Same direction as the old <&inc_dec_kp C_VOL_DN C_VOL_UP>.
+    vol_knob: vol_knob {
+        compatible = "zmk,behavior-sensor-rotate";
+        #sensor-binding-cells = <0>;
+        bindings = <&vol_dn_multi>, <&vol_up_multi>;
+    };
+
+    /*
      * TV play button: tap = media Play/Pause, hold = Enter (OK).
      * Android sends Play/Pause to the active media session, not
      * necessarily the app on screen, and many TV apps only pause on the
@@ -154,7 +185,7 @@
                 &kp C_PP   &kp C_NEXT   &kp C_PREV   &tog 1   &kp C_MUTE   &mkp LCLK
             >;
 
-            sensor-bindings = <&inc_dec_kp C_VOL_DN C_VOL_UP>;
+            sensor-bindings = <&vol_knob>;
         };
 
         arrow_layer {
@@ -162,7 +193,7 @@
                 &trans     &trans       &trans       &trans   &trans       &kp RET
             >;
 
-            sensor-bindings = <&inc_dec_kp C_VOL_DN C_VOL_UP>;
+            sensor-bindings = <&vol_knob>;
         };
 
         tv_layer {
@@ -170,7 +201,7 @@
                 &tv_play RET C_PP   &kp C_MEDIA_HOME   &mkp MB4   &trans   &trans   &trans
             >;
 
-            sensor-bindings = <&inc_dec_kp C_VOL_DN C_VOL_UP>;
+            sensor-bindings = <&vol_knob>;
         };
     };
 };
